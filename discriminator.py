@@ -2,36 +2,80 @@ import torch.nn as nn
 
 
 class Discriminator(nn.Module):
-    def __init__(self,options):
+    def __init__(self, options):
         super().__init__()
 
-        def discriminator_block(in_filters, out_filters, bn=True):
+        def conv_with_padding(in_features, out_features):
             return [
-                nn.Conv2d(in_filters, out_filters, 3, stride=2, padding=1),
-                nn.LeakyReLU(0.2, inplace=True),
-                nn.Dropout2d(p=0.25) # randomly zero out each feature map with 25% chance, to promote independence between feature maps
-                ] + ([] if not bn else [
-                nn.BatchNorm2d(out_filters, 0.8)
-                ])
+                # implement padding by hand: periodic for spanwise, reflect for top, zero for bottom
+                nn.ReplicationPad2d((1, 1, 0, 0)),
+                nn.ReflectionPad2d((0, 0, 1, 0)),
+                nn.ZeroPad2d((0, 0, 0, 1)),
+                nn.Conv2d(in_features, out_features, 3),
+            ]
 
-        self.model = nn.Sequential(
-            *discriminator_block(options.channels, 16, bn=False),
-            *discriminator_block(16, 32),
-            *discriminator_block(32, 64),
-            *discriminator_block(64, 128),
-        )
+        def repeat_block(in_features, out_features):
+            return \
+                conv_with_padding(in_features, in_features) + [
+                nn.LeakyReLU(.2) ] + \
+                conv_with_padding(in_features, out_features) + [
+                nn.LeakyReLU(.2),
+                nn.AvgPool2d(2),
+            ]
 
         # The height and width of downsampled image
-        ds_size = options.img_size // 2**4 # each D-block results in a factor-2 downsample
+        ds_size = options.img_size // 2**5 # each repeat_block results in a factor-2 downsample
         
-        self.adv_layer = nn.Sequential(
-            nn.Linear(128 * ds_size**2, 1),
-            nn.Sigmoid()
+        self.model = nn.Sequential(
+            nn.Conv2d(3, 64, 1),
+            *repeat_block(64, 128),
+            *repeat_block(128, 256),
+            *repeat_block(256, 256),
+            *repeat_block(256, 256),
+            *repeat_block(256, 256),
+            *conv_with_padding(256, 256),
+            nn.LeakyReLU(.2),
+            nn.Flatten(),
+            nn.Linear(256 * ds_size**2, 256),
+            nn.LeakyReLU(.2),
+            nn.Linear(256, 1),
+            # nn.Sigmoid(), # not needed in WGAN, where the discrimintator becomes a critic
         )
 
     def forward(self, img):
-        out = self.model(img)
-        out = out.view(out.shape[0], -1)
-        validity = self.adv_layer(out)
+        return self.model(img)
 
-        return validity
+
+
+
+### test for WGAN-GP loss
+# import torch
+
+# class A:
+#     def __init__(self):
+#         self.b = torch.tensor([1,2,3.], requires_grad=True)
+#     def func(self, x):
+#         return self.b**2 * x
+
+# a = A()
+# x = torch.tensor([3,2,1.])
+
+# x.requires_grad=True
+# if x.grad: x.grad.zero_()
+
+# y = a.func(x)
+
+# g, = torch.autograd.grad(y.sum(), x, create_graph=True)
+# print(x.grad)
+# print(g)
+
+# g.sum().backward()
+
+# print(x.grad)
+# print(a.b.grad)
+
+
+
+
+
+
