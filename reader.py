@@ -86,6 +86,14 @@ class Reader_raw(Dataset):
         # cos-distributed wall-normal grids
         return ly * (1 - np.cos(.5*np.pi * np.arange(ny)/(ny-1)))
 
+    @staticmethod
+    def augment(vel, flag):
+        if flag == 1:
+            vel = vel.flip(-1)
+            vel[2] *= -1
+
+        return vel
+
 
 class Reader(Reader_raw):
 
@@ -116,7 +124,7 @@ class Reader(Reader_raw):
         vel = torch.tensor([u,v,w], dtype=torch.float32)
         vel -= vel.mean(dim=-1, keepdim=True)
 
-        return vel
+        return self.augment(vel, flag=torch.randint(2,(1,)).item())
 
     def prepare(self, t, in_path, out_path):
         Nx = self.para.Nx

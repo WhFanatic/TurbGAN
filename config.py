@@ -29,7 +29,6 @@ def config_options():
     
     # training options
     parser.add_argument("--n_epochs", type=int, default=200, help="number of epochs of training")
-    parser.add_argument("--batch_size", type=int, default=16, help="size of the mini-batch") # as large as GPU can fit
     parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
     
     # output options
@@ -40,7 +39,8 @@ def config_options():
     # -----------------
 
     # optimizer options
-    parser.add_argument("--lr", type=float, default=0.0005,help="adam: learning rate")
+    parser.add_argument("--batch_size", type=int, default=16, help="size of the mini-batch") # as large as GPU can fit
+    parser.add_argument("--lr", type=float, default=0.0001,help="adam: learning rate")
     parser.add_argument("--b1", type=float, default=0.9,   help="adam: decay of first order momentum of gradient")
     parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
     

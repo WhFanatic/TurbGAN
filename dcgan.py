@@ -29,6 +29,33 @@ def weights_init_normal(m):
 
 def loss_WGAN_GP(disnet, real_imgs, fake_imgs, lamb):
     ## compute the WGAN-GP loss proposed by Gulrajani et al. 2017
+
+    # # another realization: requires less memory
+    # # D loss for WGAN
+    # loss_r = - torch.mean(disnet(real_imgs))
+    # loss_r.backward()
+
+    # loss_f = torch.mean(disnet(fake_imgs))
+    # loss_f.backward()
+
+    # # GP: gradient penalty
+    # alpha = torch.rand(len(real_imgs), 1, 1, 1, device=real_imgs.device)
+    # inter_imgs = alpha * real_imgs + (1-alpha) * fake_imgs
+
+    # loss_gp = 0
+    # local_bs = 16
+
+    # for imgs in DataLoader(inter_imgs, batch_size=local_bs):
+    #     imgs.requires_grad = True
+    #     grads, = torch.autograd.grad(disnet(imgs).sum(), imgs, retain_graph=True, create_graph=True)
+    #     loss = lamb/len(inter_imgs) * torch.square(torch.sum(grads**2, dim=(1,2,3))**.5 - 1).sum()
+    #     loss.backward()
+    #     loss_gp += loss
+
+    # return loss_r + loss_f + loss_gp
+    # # remember to comment out the loss_D.backward() in the main loop
+
+
     # D loss for WGAN
     loss_WGAN = torch.mean(disnet(fake_imgs)) - torch.mean(disnet(real_imgs))
 
@@ -38,12 +65,40 @@ def loss_WGAN_GP(disnet, real_imgs, fake_imgs, lamb):
     inter_imgs.requires_grad=True
 
     grads, = torch.autograd.grad(disnet(inter_imgs).sum(), inter_imgs, create_graph=True) # takes much memory
-    loss_GP = torch.mean((torch.sum(grads**2, dim=(1,2))**.5 - 1)**2)
+    loss_GP = ((grads.view(len(grads), -1).norm(2, dim=1) - 1)**2).mean()
 
     # get loss for D
     loss_D = loss_WGAN + lamb * loss_GP
 
     return loss_D
+
+def save_for_resume(path, gennet, disnet, opt_G, opt_D, loss_G, loss_D, epoch):
+    torch.save({
+        'epoch': epoch,
+        'G_state_dict': gennet.state_dict(),
+        'D_state_dict': disnet.state_dict(),
+        'G_optimizer_state_dict': opt_G.state_dict(),
+        'D_optimizer_state_dict': opt_D.state_dict(),
+        'G_loss': loss_G,
+        'D_loss': loss_D,
+        }, path + 'for_resume.pt')
+
+def load_for_resume(path, gennet, disnet, opt_G, opt_D):
+    try:
+        for_resume = torch.load(path + 'for_resume.pt')
+    except:
+        print('\nTrain from scratch.\n')
+        return -1
+    
+    gennet.load_state_dict(for_resume['G_state_dict'])
+    disnet.load_state_dict(for_resume['D_state_dict'])
+    opt_G.load_state_dict(for_resume['G_optimizer_state_dict'])
+    opt_D.load_state_dict(for_resume['D_optimizer_state_dict'])
+    epoch = for_resume['epoch']
+
+    print('\nResume training from epoch %i.\n'%(epoch+1))
+
+    return epoch
 
 
 
@@ -89,10 +144,12 @@ if __name__ == '__main__':
     #  Training
     # ----------
 
+    epoch = load_for_resume(options.workpath+'models/', gennet, disnet, opt_G, opt_D)
+
     gennet.train()
     disnet.train()
 
-    for epoch in range(options.n_epochs):
+    for epoch in range(epoch+1, options.n_epochs):
 
         for i, imgs in enumerate(dataloader):
 
@@ -114,6 +171,7 @@ if __name__ == '__main__':
             #  Train Discriminator
             # ---------------------
 
+            disnet.requires_grad_(True)
             opt_D.zero_grad()
 
             # Generate a batch of images
@@ -131,12 +189,16 @@ if __name__ == '__main__':
             #  Train Generator
             # -----------------
 
+            disnet.requires_grad_(False)
             opt_G.zero_grad()
 
             # Generate a batch of images
             fake_imgs = gennet(z)
 
-            loss_G = -disnet(fake_imgs).mean() + 10 * torch.sum(fake_imgs.mean(dim=-1)**2)
+            loss_G = -disnet(fake_imgs).mean() + 100 * torch.sum(fake_imgs.mean(dim=-1)**2)
+
+            # print(torch.sum(fake_imgs.mean(dim=-1)**2).item())
+            # print(torch.sum(real_imgs.mean(dim=-1)**2).item())
 
             loss_G.backward()
             opt_G.step()
@@ -148,7 +210,7 @@ if __name__ == '__main__':
             print("[Epoch %d/%d] [Batch %d/%d] [D loss: %.4f] [G loss: %.4f]" % (
                 epoch, options.n_epochs, i, len(dataloader), loss_D.item(), loss_G.item() ))
 
-            with open(options.workpath + 'log.dat', ('a','w')[iters==0]) as fp:
+            with open(options.workpath + 'log.dat', 'aw'[iters==0]) as fp:
                 fp.write('%i\t%.8e\t%.8e\n'%(iters, loss_D, loss_G))
 
             if (iters//options.n_critic) % options.draw_every == 0:
@@ -158,7 +220,7 @@ if __name__ == '__main__':
                 zs = ds.para.Lz * np.arange(vel.shape[-1]) / vel.shape[-1]
 
                 gennet.eval()
-                with open(options.workpath + 'fid.dat', ('a','w')[iters==0]) as fp:
+                with open(options.workpath + 'fid.dat', 'aw'[iters==0]) as fp:
                     fidr, fid1, fid0 = fid.calc(relative=True)
                     fp.write('%i\t%.8e\t%.8e\t%.8e\n'%(iters, fidr, fid1, fid0))
                 gennet.train()
@@ -168,16 +230,7 @@ if __name__ == '__main__':
                 draw_fid(options.workpath + 'fid.png', options.workpath + 'fid.dat')
 
         # save the model every epoch for resuming training
-        torch.save({
-            'epoch': epoch,
-            'G_state_dict': gennet.state_dict(),
-            'D_state_dict': disnet.state_dict(),
-            'G_optimizer_state_dict': opt_G.state_dict(),
-            'D_optimizer_state_dict': opt_D.state_dict(),
-            'G_loss': loss_G,
-            'D_loss': loss_D,
-            }, options.workpath+'models/for_resume.pt')
-
+        save_for_resume(options.workpath+'models/', gennet, disnet, opt_G, opt_D, loss_G, loss_D, epoch)
         torch.save(gennet.state_dict(), options.workpath+'models/model_G.pt')
         torch.save(disnet.state_dict(), options.workpath+'models/model_D.pt')
 

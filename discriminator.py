@@ -1,4 +1,15 @@
+import torch
 import torch.nn as nn
+
+
+# define custom non-parametric layers
+class Lambda(nn.Module):
+    def __init__(self, func):
+        super().__init__()
+        self.func = func
+
+    def forward(self, x):
+        return self.func(x)
 
 
 class Discriminator(nn.Module):
@@ -13,6 +24,11 @@ class Discriminator(nn.Module):
                 nn.ZeroPad2d((0, 0, 0, 1)),
                 nn.Conv2d(in_features, out_features, 3),
             ]
+
+        def batch_std(x):
+            # minibatch standard deviation to improve variety (Karras et al. 2018)
+            std_map = torch.ones_like(x[:,:1]) * torch.std(x, dim=0).mean()
+            return torch.cat((x, std_map), dim=1)
 
         def repeat_block(in_features, out_features):
             return \
@@ -33,7 +49,9 @@ class Discriminator(nn.Module):
             *repeat_block(256, 256),
             *repeat_block(256, 256),
             *repeat_block(256, 256),
-            *conv_with_padding(256, 256),
+            Lambda(batch_std),
+            *conv_with_padding(257, 256),
+            # *conv_with_padding(256, 256),
             nn.LeakyReLU(.2),
             nn.Flatten(),
             nn.Linear(256 * ds_size**2, 256),
@@ -47,7 +65,8 @@ class Discriminator(nn.Module):
 
 
 
-
+if __name__ == '__main__':
+    pass
 ### test for WGAN-GP loss
 # import torch
 
@@ -65,7 +84,7 @@ class Discriminator(nn.Module):
 
 # y = a.func(x)
 
-# g, = torch.autograd.grad(y.sum(), x, create_graph=True)
+# g, = torch.autograd.grad(y.sum(), x, retain_graph=False, create_graph=True)
 # print(x.grad)
 # print(g)
 
