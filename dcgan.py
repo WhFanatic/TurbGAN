@@ -7,8 +7,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from config import config_options
-from generator import Generator
-from discriminator import Discriminator
+from models import Generator, Discriminator
 from reader import Reader
 from fid import FID, wrapped_dl_gen
 from plots import draw_vel, draw_log, draw_fid
@@ -58,6 +57,8 @@ def loss_WGAN_GP(disnet, real_imgs, fake_imgs, lamb):
 
     # D loss for WGAN
     loss_WGAN = torch.mean(disnet(fake_imgs)) - torch.mean(disnet(real_imgs))
+    # loss_WGAN = disnet(torch.cat((fake_imgs, real_imgs))).view(2,-1).mean(dim=-1)
+    # loss_WGAN = loss_WGAN[0] - loss_WGAN[1]
 
     # GP: gradient penalty
     alpha = torch.rand(len(real_imgs), 1, 1, 1, device=real_imgs.device)
@@ -119,8 +120,8 @@ if __name__ == '__main__':
     gennet = Generator(options).to(device)
     disnet = Discriminator(options).to(device)
 
-    gennet.apply(weights_init_normal)
-    disnet.apply(weights_init_normal)
+    # gennet.apply(weights_init_normal)
+    # disnet.apply(weights_init_normal)
 
     dataloader = DataLoader(
         Reader('/mnt/disk2/whn/etbl/TBL_1420_big/test/', options.datapath, options.img_size),
@@ -195,7 +196,30 @@ if __name__ == '__main__':
             # Generate a batch of images
             fake_imgs = gennet(z)
 
-            loss_G = -disnet(fake_imgs).mean() + 100 * torch.sum(fake_imgs.mean(dim=-1)**2)
+            MSE1 = torch.sum(fake_imgs.mean(dim=-1)**2) # fake_imgs.mean()**2
+            MSE2 = torch.sum(
+                torch.max(
+                    (fake_imgs.var(dim=(0,-1)) - real_imgs.var(dim=(0,-1)))**2,
+                    (real_imgs.var(dim=(0,-1)) * .3)**2
+                    )
+                )
+
+            print(
+                MSE1.item(), '\t',
+                torch.sum(real_imgs.mean(dim=-1)**2).item(), '\t',
+                MSE2.item(), '\t',
+                torch.sum((real_imgs.var(dim=(0,-1)) * .3)**2).item()
+                )
+            np.savetxt('real_varu.dat', real_imgs.var(dim=(0,-1))[0].detach().cpu().numpy())
+            np.savetxt('fake_varu.dat', fake_imgs.var(dim=(0,-1))[0].detach().cpu().numpy())
+
+            np.savetxt('real_varv.dat', real_imgs.var(dim=(0,-1))[1].detach().cpu().numpy())
+            np.savetxt('fake_varv.dat', fake_imgs.var(dim=(0,-1))[1].detach().cpu().numpy())
+
+            np.savetxt('real_varw.dat', real_imgs.var(dim=(0,-1))[2].detach().cpu().numpy())
+            np.savetxt('fake_varw.dat', fake_imgs.var(dim=(0,-1))[2].detach().cpu().numpy())
+
+            loss_G = -disnet(fake_imgs).mean() + 100 * (MSE1 + 10*MSE2)
 
             # print(torch.sum(fake_imgs.mean(dim=-1)**2).item())
             # print(torch.sum(real_imgs.mean(dim=-1)**2).item())
