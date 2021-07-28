@@ -29,20 +29,6 @@ class EqualLR:
         setattr(module, self.name, weight)
 
 
-# class EqualConv2d(nn.Module):
-#     def __init__(self, *args, **kwargs):
-#         super().__init__()
-
-#         conv = nn.Conv2d(*args, **kwargs)
-#         conv.weight.data.normal_()
-#         conv.bias.data.zero_()
-#         self.conv = EqualLR.apply(conv, 'weight')
-
-#     def forward(self, input):
-#         return self.conv(input)
-
-
-
 class Equalized(nn.Module):
     def __init__(self, module):
         super().__init__()
@@ -76,20 +62,11 @@ def conv_with_padding(in_features, out_features):
     ]
 
 class Generator(nn.Module):
-    def __init__(self, options):
+    def __init__(self, latent_dim, img_size):
         super().__init__()
 
         def pixel_norm(x):
             return x / (torch.mean(x**2, dim=-3, keepdim=True) + 1e-8)**.5
-
-        # def conv_with_padding(in_features, out_features):
-        #     return [
-        #         # implement padding by hand: periodic for spanwise, reflect for top, zero for bottom
-        #         nn.ReplicationPad2d((1, 1, 0, 0)),
-        #         nn.ReflectionPad2d((0, 0, 1, 0)),
-        #         nn.ZeroPad2d((0, 0, 0, 1)),
-        #         nn.Conv2d(in_features, out_features, 3),
-        #     ]
 
         def relu_with_pixnorm():
             return [
@@ -106,10 +83,10 @@ class Generator(nn.Module):
                 relu_with_pixnorm()
 
         # the starting size of feature maps at the entrance of conv blocks
-        start_size = options.img_size // 2**5 # the start_size turns into img_size through 5 Upsample
+        start_size = img_size // 2**5 # the start_size turns into img_size through 5 Upsample
 
         self.model = nn.Sequential(
-            Equalized(nn.Linear(options.latent_dim, 256 * start_size**2)),
+            Equalized(nn.Linear(latent_dim, 256 * start_size**2)),
             nn.Unflatten(1, (256, start_size, start_size)),
             *relu_with_pixnorm(),
             *conv_with_padding(256, 256),
@@ -127,17 +104,8 @@ class Generator(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, options):
+    def __init__(self, img_size):
         super().__init__()
-
-        # def conv_with_padding(in_features, out_features):
-        #     return [
-        #         # implement padding by hand: periodic for spanwise, reflect for top, zero for bottom
-        #         nn.ReplicationPad2d((1, 1, 0, 0)),
-        #         nn.ReflectionPad2d((0, 0, 1, 0)),
-        #         nn.ZeroPad2d((0, 0, 0, 1)),
-        #         nn.Conv2d(in_features, out_features, 3),
-        #     ]
 
         def batch_std(x):
             # minibatch standard deviation to improve variety (Karras et al. 2018)
@@ -154,7 +122,7 @@ class Discriminator(nn.Module):
             ]
 
         # The height and width of downsampled image
-        ds_size = options.img_size // 2**5 # each repeat_block results in a factor-2 downsample
+        ds_size = img_size // 2**5 # each repeat_block results in a factor-2 downsample
         
         self.model = nn.Sequential(
             Equalized(nn.Conv2d(3, 64, 1)),

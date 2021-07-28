@@ -12,7 +12,7 @@ if __name__ == '__main__':
 
     options = config_options()
 
-    generator = Generator(options)
+    generator = Generator(options.latent_dim, options.img_size)
     generator.load_state_dict(torch.load(options.workpath+'models/model_G.pt'))
     generator.eval()
 

@@ -37,6 +37,8 @@ def draw_log(figname, filename):
     ax.legend()
     ax.set_xlabel('Iterations')
 
+    ax.set_ylim(np.multiply([-5, 10], np.abs(np.median(data[:,1:], axis=0)).max()))
+
     fig.tight_layout()
 
     fig.savefig(figname, dpi=300)
@@ -48,7 +50,7 @@ def draw_fid(figname, filename):
 
     fig, ax = plt.subplots()
 
-    ax.plot(data[:,0], data[:,1], '.-', lw=.5, markersize=1, label='FID/FID0')
+    ax.semilogy(data[:,0], data[:,1], '.-', lw=.5, markersize=1, label='FID/FID0')
 
     ax.set_ylabel('Relative FID')
     ax.set_xlabel('Iterations')

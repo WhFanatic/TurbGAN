@@ -32,7 +32,7 @@ def config_options():
     parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
     
     # output options
-    parser.add_argument("--draw_every", type=int, default=100, help="interval between image sampling")
+    parser.add_argument("--draw_every", type=int, default=500, help="interval between image sampling")
 
     # -----------------
     # Hyper-parameters

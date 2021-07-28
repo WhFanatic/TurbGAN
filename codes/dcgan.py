@@ -29,39 +29,13 @@ def weights_init_normal(m):
 def loss_WGAN_GP(disnet, real_imgs, fake_imgs, lamb):
     ## compute the WGAN-GP loss proposed by Gulrajani et al. 2017
 
-    # # another realization: requires less memory
-    # # D loss for WGAN
-    # loss_r = - torch.mean(disnet(real_imgs))
-    # loss_r.backward()
-
-    # loss_f = torch.mean(disnet(fake_imgs))
-    # loss_f.backward()
-
-    # # GP: gradient penalty
-    # alpha = torch.rand(len(real_imgs), 1, 1, 1, device=real_imgs.device)
-    # inter_imgs = alpha * real_imgs + (1-alpha) * fake_imgs
-
-    # loss_gp = 0
-    # local_bs = 16
-
-    # for imgs in DataLoader(inter_imgs, batch_size=local_bs):
-    #     imgs.requires_grad = True
-    #     grads, = torch.autograd.grad(disnet(imgs).sum(), imgs, retain_graph=True, create_graph=True)
-    #     loss = lamb/len(inter_imgs) * torch.square(torch.sum(grads**2, dim=(1,2,3))**.5 - 1).sum()
-    #     loss.backward()
-    #     loss_gp += loss
-
-    # return loss_r + loss_f + loss_gp
-    # # remember to comment out the loss_D.backward() in the main loop
-
-
     # D loss for WGAN
-    loss_WGAN = torch.mean(disnet(fake_imgs)) - torch.mean(disnet(real_imgs))
-    # loss_WGAN = disnet(torch.cat((fake_imgs, real_imgs))).view(2,-1).mean(dim=-1)
-    # loss_WGAN = loss_WGAN[0] - loss_WGAN[1]
+    # loss_WGAN = torch.mean(disnet(fake_imgs)) - torch.mean(disnet(real_imgs))
+    loss_WGAN = disnet(torch.cat((fake_imgs, real_imgs))).view(2,-1).mean(dim=-1)
+    loss_WGAN = loss_WGAN[0] - loss_WGAN[1]
 
     # GP: gradient penalty
-    alpha = torch.rand(len(real_imgs), 1, 1, 1, device=real_imgs.device)
+    alpha = torch.rand(len(real_imgs), device=real_imgs.device).view(-1,1,1,1)
     inter_imgs = alpha * real_imgs + (1-alpha) * fake_imgs
     inter_imgs.requires_grad=True
 
@@ -113,12 +87,13 @@ if __name__ == '__main__':
     os.makedirs(options.workpath+'models/', exist_ok=True)
 
     # use CUDA whenever available
-    device = ('cpu', 'cuda')[torch.cuda.is_available()]
-    tensor = (torch.FloatTensor, torch.cuda.FloatTensor)[torch.cuda.is_available()]
+    cuda_on = torch.cuda.is_available()
+    device = ('cpu',             'cuda'                )[cuda_on]
+    tensor = (torch.FloatTensor, torch.cuda.FloatTensor)[cuda_on]
 
     # Initialize generator and discriminator
-    gennet = Generator(options).to(device)
-    disnet = Discriminator(options).to(device)
+    gennet = Generator(options.latent_dim, options.img_size).to(device)
+    disnet = Discriminator(options.img_size).to(device)
 
     # gennet.apply(weights_init_normal)
     # disnet.apply(weights_init_normal)
@@ -238,7 +213,7 @@ if __name__ == '__main__':
                 fp.write('%i\t%.8e\t%.8e\n'%(iters, loss_D, loss_G))
 
             if (iters//options.n_critic) % options.draw_every == 0:
-                vel = fake_imgs[0].detach().cpu()
+                vel = fake_imgs[0].detach().cpu().numpy()
                 ds = dataloader.dataset
                 ys = ds.gengrid(ds.para.Ly, vel.shape[-2])
                 zs = ds.para.Lz * np.arange(vel.shape[-1]) / vel.shape[-1]
@@ -257,6 +232,8 @@ if __name__ == '__main__':
         save_for_resume(options.workpath+'models/', gennet, disnet, opt_G, opt_D, loss_G, loss_D, epoch)
         torch.save(gennet.state_dict(), options.workpath+'models/model_G.pt')
         torch.save(disnet.state_dict(), options.workpath+'models/model_D.pt')
+        print('Resume file saved for epoch %i.'%epoch)
+
 
 
 

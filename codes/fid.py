@@ -123,11 +123,9 @@ class FID:
     @staticmethod
     def calc_acts_statis(dataloader, incep_net, num):
         ## compute statistics of activations over in total num images returned by dataloader batch by batch
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         incep_acts = np.empty([num, 2048], dtype=np.float32)
 
-        incep_net.to(device)
         incep_net.eval()
 
         cnt = 0
@@ -136,7 +134,7 @@ class FID:
             for imgs in dataloader:
 
                 with torch.no_grad():
-                    acts = incep_net(FID.preproc_imgs(imgs).to(device))
+                    acts = incep_net.to(imgs.device)(FID.preproc_imgs(imgs))
 
                 incep_acts[cnt:cnt+len(imgs)] = acts[:num-cnt].cpu().numpy()
 
@@ -207,7 +205,7 @@ if __name__ == "__main__":
 
     from generator import Generator
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    gennet = Generator(options)
+    gennet = Generator(options.latent_dim, options.img_size)
     gennet.load_state_dict(torch.load(options.workpath+'models/model_G.pt'))
     gennet.to(device)
     gennet.eval()
