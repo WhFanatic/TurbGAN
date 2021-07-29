@@ -56,8 +56,9 @@ def conv_with_padding(in_features, out_features):
     return [
         # implement padding by hand: periodic for spanwise, reflect for top, zero for bottom
         nn.ReplicationPad2d((1, 1, 0, 0)),
-        nn.ReflectionPad2d((0, 0, 1, 0)),
-        nn.ZeroPad2d((0, 0, 0, 1)),
+        nn.ReflectionPad2d((0, 0, 1, 1)),
+        # nn.ReflectionPad2d((0, 0, 0, 1)), # top for flow field, bottom for tensor
+        # nn.ZeroPad2d((0, 0, 1, 0)), # bottom for flow field, top for tensor
         Equalized(nn.Conv2d(in_features, out_features, 3)),
     ]
 

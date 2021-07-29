@@ -90,3 +90,42 @@ if __name__ == '__main__':
 #     for k in a.state_dict():
 #         print(k,a.state_dict()[k].shape)
 
+
+
+
+
+# # learning rate decay test
+# import torch
+# import torch.nn as nn
+# import torch.optim as optim
+
+# model = [nn.Parameter(torch.randn(2, 2, requires_grad=True))]
+# optimizer = optim.SGD(model, 0.1)
+# scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
+
+# optimizer.step()
+# scheduler.step()
+# optimizer.step()
+# scheduler.step()
+
+# torch.save({'opt':optimizer.state_dict()}, '__opt.pt')
+# del optimizer
+
+# optimizer = optim.SGD(model, 0.1)
+
+# print(optimizer)
+
+# optimizer.load_state_dict(torch.load('__opt.pt')['opt'])
+
+# print(optimizer)
+
+# scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9, last_epoch=0)
+
+# print(optimizer)
+
+# optimizer.step()
+# scheduler.step()
+
+# print(optimizer)
+
+# exit()

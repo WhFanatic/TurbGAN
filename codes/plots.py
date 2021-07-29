@@ -33,6 +33,8 @@ def draw_log(figname, filename):
 
     ax.plot(data[:,0], data[:,1], '.-', lw=.5, markersize=1, label='D loss')
     ax.plot(data[:,0], data[:,2], '.-', lw=.5, markersize=1, label='G loss')
+    ax.plot(data[:,0], data[:,3], '.-', lw=.5, markersize=1, label=r'$\lambda_1 d_1$')
+    ax.plot(data[:,0], data[:,4], '.-', lw=.5, markersize=1, label=r'$\lambda_2 d_2$')
 
     ax.legend()
     ax.set_xlabel('Iterations')
