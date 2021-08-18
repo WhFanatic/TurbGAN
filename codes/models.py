@@ -56,7 +56,7 @@ def conv_with_padding(in_features, out_features):
     return [
         # implement padding by hand: periodic for spanwise, reflect for top, zero for bottom
         nn.ReplicationPad2d((1, 1, 0, 0)),
-        nn.ReflectionPad2d((0, 0, 1, 1)),
+        nn.ZeroPad2d((0, 0, 1, 1)),
         # nn.ReflectionPad2d((0, 0, 0, 1)), # top for flow field, bottom for tensor
         # nn.ZeroPad2d((0, 0, 1, 0)), # bottom for flow field, top for tensor
         Equalized(nn.Conv2d(in_features, out_features, 3)),
@@ -84,7 +84,7 @@ class Generator(nn.Module):
                 relu_with_pixnorm()
 
         # the starting size of feature maps at the entrance of conv blocks
-        start_size = img_size // 2**5 # the start_size turns into img_size through 5 Upsample
+        start_size = img_size // 2**4 # 2**5 # the start_size turns into img_size through 5 Upsample
 
         self.model = nn.Sequential(
             Equalized(nn.Linear(latent_dim, 256 * start_size**2)),
@@ -92,7 +92,7 @@ class Generator(nn.Module):
             *relu_with_pixnorm(),
             *conv_with_padding(256, 256),
             *repeat_block(256, 256),
-            *repeat_block(256, 256),
+            # *repeat_block(256, 256),
             *repeat_block(256, 256),
             *repeat_block(256, 128),
             *repeat_block(128, 64),
@@ -123,18 +123,18 @@ class Discriminator(nn.Module):
             ]
 
         # The height and width of downsampled image
-        ds_size = img_size // 2**5 # each repeat_block results in a factor-2 downsample
+        ds_size = img_size // 2**4 # 2**5 # each repeat_block results in a factor-2 downsample
         
         self.model = nn.Sequential(
             Equalized(nn.Conv2d(3, 64, 1)),
             *repeat_block(64, 128),
             *repeat_block(128, 256),
             *repeat_block(256, 256),
+            # *repeat_block(256, 256),
             *repeat_block(256, 256),
-            *repeat_block(256, 256),
-            Lambda(batch_std),
-            *conv_with_padding(257, 256),
-            # *conv_with_padding(256, 256),
+            # Lambda(batch_std),
+            # *conv_with_padding(257, 256),
+            *conv_with_padding(256, 256),
             nn.LeakyReLU(.2),
             nn.Flatten(),
             Equalized(nn.Linear(256 * ds_size**2, 256)),

@@ -48,8 +48,8 @@ def config_options():
     # GAN options
     parser.add_argument("--n_critic", type=int, default=1, help="multiple of D-training iterations w.r.t G-training iterations (to train D better)")
     parser.add_argument("--lambda_gp", type=float, default=100, help="gradient penalty coefficient for WGAN-GP loss")
-    parser.add_argument("--lambda_d1", type=float, default=100, help="penalty coefficient for statistical constraint")
-    parser.add_argument("--lambda_d2", type=float, default=100, help="penalty coefficient for statistical constraint")
+    parser.add_argument("--lambda_d1", type=float, default=0, help="penalty coefficient for statistical constraint")
+    parser.add_argument("--lambda_d2", type=float, default=0, help="penalty coefficient for statistical constraint")
 
     # -----------------
     # Print

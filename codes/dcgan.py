@@ -94,7 +94,7 @@ if __name__ == '__main__':
     # disnet.apply(weights_init_normal)
 
     dataloader = DataLoader(
-        Reader('/mnt/disk2/whn/etbl/TBL_1420/test/', options.datapath, options.img_size),
+        Reader('/mnt/disk2/whn/etbl/TBLs/TBL_1420/test/', options.datapath, options.img_size),
         batch_size=options.batch_size,
         shuffle=True,
         num_workers=options.n_cpu,
@@ -113,18 +113,21 @@ if __name__ == '__main__':
 
     epoch = options.resume
 
-    if epoch < 0: print('\nTrain from scratch.\n')
-    else: load_for_resume(options.workpath + 'models/', epoch, gennet, disnet, opt_G, opt_D)
+    if epoch < 0:
+        print('\nTrain from scratch.\n')
+    else:
+        load_for_resume(options.workpath + 'models/', epoch, gennet, disnet, opt_G, opt_D)
 
-    # # mannually adjust lr in resuming training
-    # for g in opt_G.param_groups: g['lr'] *= .5
-    # for g in opt_D.param_groups: g['lr'] *= .5
+        if options.lr != 1:
+            print('\nMannually adjust lr by %f for resuming training.\n'%options.lr)
+            for g in opt_G.param_groups: g['lr'] *= options.lr
+            for g in opt_D.param_groups: g['lr'] *= options.lr
 
     # scheduler2_G = torch.optim.lr_scheduler.ReduceLROnPlateau(opt_G, factor=.5, patience=5, verbose=True)
     # scheduler2_D = torch.optim.lr_scheduler.ReduceLROnPlateau(opt_D, factor=.5, patience=5, verbose=True)
 
-    scheduler_G = torch.optim.lr_scheduler.StepLR(opt_G, step_size=1*options.n_critic, gamma=.9, last_epoch=epoch, verbose=True)
-    scheduler_D = torch.optim.lr_scheduler.StepLR(opt_D, step_size=1*options.n_critic, gamma=.9, last_epoch=epoch, verbose=True)
+    scheduler_G = torch.optim.lr_scheduler.StepLR(opt_G, step_size=1 * int(options.n_critic**.5+.5), gamma=.9, last_epoch=epoch, verbose=True)
+    scheduler_D = torch.optim.lr_scheduler.StepLR(opt_D, step_size=1 * int(options.n_critic**.5+.5), gamma=.9, last_epoch=epoch, verbose=True)
 
     # ----------
     #  Training
@@ -133,7 +136,7 @@ if __name__ == '__main__':
     gennet.train()
     disnet.train()
 
-    while epoch < options.n_epochs:
+    while epoch < options.n_epochs * options.n_critic:
         epoch += 1
         total_losses = []
 
@@ -216,7 +219,7 @@ if __name__ == '__main__':
             total_losses.append((loss_G + loss_D).item())
 
             print("[Epoch %d/%d] [Batch %d/%d] [D loss: %.4f] [G loss: %.4f]" % (
-                epoch, options.n_epochs, i, len(dataloader), loss_D.item(), loss_G.item() ))
+                epoch, options.n_epochs * options.n_critic, i, len(dataloader), loss_D.item(), loss_G.item() ))
 
             with open(options.workpath + 'log.dat', 'aw'[iters==0]) as fp:
                 fp.write(

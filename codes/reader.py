@@ -19,16 +19,25 @@ class Reader_raw(Dataset):
         return len(self.para.tsteps) * (self.para.Nx//2)
 
     def __getitem__(self, idx):
+        return self.preproc(self.read(*self.indexing(idx)))
+
+    def indexing(self, idx):
         tsteps = self.para.tsteps
         Nx = self.para.Nx
-
         t = tsteps[idx//(Nx//2)]
-        i = idx%(Nx//2) + Nx//4
+        i = idx%(Nx//2)
+        return t, i
 
+    def read(self, t, i):
+        i += self.para.Nx//4
         vel = self.interp(self.readcut(t, i), self.img_size)
         vel = torch.tensor(vel, dtype=torch.float32)
-        vel -= vel.mean(dim=-1, keepdim=True)
+        return vel
 
+    def preproc(self, vel):
+        vel -= vel.mean(dim=-1, keepdim=True)
+        vel *= torch.tensor([10., 20., 15.]).view(3, 1, 1)
+        vel = self.augment(vel, 2)
         return vel
 
     def readcut(self, t, i):
@@ -73,7 +82,7 @@ class Reader_raw(Dataset):
         w = ft.hfft(ft.ihfft(w, axis=1) * shifter, n=img_size, axis=1)
 
         # wall-normal interpolation
-        new_ys = gengrid(self.para.Ly, img_size)
+        new_ys = self.gengrid(self.para.Ly, img_size)
 
         u = interp1d(self.para.yc,    u,     axis=0, fill_value='extrapolate')(new_ys)
         v = interp1d(self.para.y[1:], v[1:], axis=0, fill_value='extrapolate')(new_ys)
@@ -81,16 +90,22 @@ class Reader_raw(Dataset):
 
         return np.array([u,v,w])
 
-    @staticmethod
-    def gengrid(ly, ny):
+    def gengrid(self, ly, ny):
         # cos-distributed wall-normal grids
         return ly * (1 - np.cos(.5*np.pi * np.arange(ny)/(ny-1)))
 
-    @staticmethod
-    def augment(vel, flag):
-        if flag == 1:
+    def augment(self, vel, flag):
+        flip = torch.randint(2, (1,)).item()
+        roll = torch.randint(self.img_size, (1,)).item()
+
+        # flip in spanwise direction
+        if flag == 1 and flip:
             vel = vel.flip(-1)
             vel[2] *= -1
+
+        # random shift in spanwise direction
+        elif flag == 2 and roll:
+            vel = self.augment(vel, 1).roll(roll, dims=-1)
 
         return vel
 
@@ -100,18 +115,11 @@ class Reader(Reader_raw):
     def __init__(self, path1, path2, img_size):
         # path1 is where the raw data of numerical simulations are stored
         # path2 is where the dataset for training (restructured from raw data) are stored
-        self.para = basic.DataSetInfo(path1)
-        self.img_size = img_size
+        super().__init__(path1, img_size)
         self.datapath = path2
         os.makedirs(self.datapath, exist_ok=True)
 
-    def __getitem__(self, idx):
-        tsteps = self.para.tsteps
-        Nx = self.para.Nx
-
-        t = tsteps[idx//(Nx//2)]
-        i = idx%(Nx//2)
-
+    def read(self, t, i):
         if np.any(['%s%08i.bin'%(c,t) not in os.listdir(self.datapath) for c in 'UVW']):
             self.prepare(t, self.para.fieldpath, self.datapath)
 
@@ -122,9 +130,8 @@ class Reader(Reader_raw):
         w = np.fromfile(self.datapath+'W%08i.bin'%t, np.float64, nz*nx, offset=8*nz*nx*(i+1)).reshape([nz,nx])
 
         vel = torch.tensor([u,v,w], dtype=torch.float32)
-        vel -= vel.mean(dim=-1, keepdim=True)
 
-        return self.augment(vel, flag=torch.randint(2,(1,)).item())
+        return vel
 
     def prepare(self, t, in_path, out_path):
         Nx = self.para.Nx
@@ -139,16 +146,6 @@ class Reader(Reader_raw):
         u = .5 * (u[:,:,:-1] + u[:,:,1:])
 
         self.interp(np.array([u,v,w]), self.img_size)
-
-        # u = ft.hfft(ft.ihfft(u, axis=1), axis=1, n=self.img_size)
-        # v = ft.hfft(ft.ihfft(v, axis=1), axis=1, n=self.img_size)
-        # w = ft.hfft(ft.ihfft(w, axis=1), axis=1, n=self.img_size)
-
-        # new_ys = self.gengrid(self.para.Ly, self.img_size)
-
-        # u = interp1d(ys, u, axis=0, fill_value='extrapolate')(new_ys)
-        # v = interp1d(ys, v, axis=0, fill_value='extrapolate')(new_ys)
-        # w = interp1d(ys, w, axis=0, fill_value='extrapolate')(new_ys)
 
         basic.write_channel(out_path+'U%08i.bin'%t, np.transpose(u, (2,0,1)))
         basic.write_channel(out_path+'V%08i.bin'%t, np.transpose(v, (2,0,1)))
