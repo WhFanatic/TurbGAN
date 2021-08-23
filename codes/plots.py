@@ -3,6 +3,25 @@ import matplotlib.pyplot as plt
 from torchvision.utils import save_image
 
 
+def biSearch(getx, n, target):
+    ''' Binary search for the  first element >= target '''
+    i, j = 0, n
+    while i < j:
+        mid = (i + j) >> 1
+        if getx(mid) < target: i = mid + 1
+        else: j = mid
+    return j
+
+def dataClean(data):
+    lag = 0
+    for i, line in enumerate(data[1:], 1):
+        if data[i,0] <= data[i-lag-1,0]:
+            lag = i - biSearch(lambda idx: data[idx,0], i-lag-1, data[i,0])
+        if lag:
+            data[i-lag] = data[i]
+    return data[:len(data)-lag]
+
+
 def draw_vel(figname, vel, ys, zs):
 
     fig, axs = plt.subplots(3, 1, sharex=True, sharey=True, figsize=(3.2,7.2))
@@ -28,6 +47,7 @@ def draw_vel(figname, vel, ys, zs):
 def draw_log(figname, filename):
 
     data = np.atleast_2d(np.loadtxt(filename))
+    data = dataClean(data)
 
     fig, ax = plt.subplots()
 
@@ -49,6 +69,7 @@ def draw_log(figname, filename):
 def draw_fid(figname, filename):
 
     data = np.atleast_2d(np.loadtxt(filename))
+    data = dataClean(data)
 
     fig, ax = plt.subplots()
 

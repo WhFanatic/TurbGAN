@@ -10,15 +10,15 @@ from models import Generator
 
 if __name__ == '__main__':
 
-    options = config_options()
+    opt = config_options()
 
-    generator = Generator(options.latent_dim, options.img_size)
-    generator.load_state_dict(torch.load(options.workpath+'models/model_G.pt'))
+    generator = Generator(opt.latent_dim, opt.img_size)
+    generator.load_state_dict(torch.load(opt.workpath+'models/model_G.pt'))
     generator.eval()
 
     # Generate one image
     with torch.no_grad():
-        z = torch.randn((1, options.latent_dim)) # Sample noise as generator input
+        z = torch.randn((1, opt.latent_dim)) # Sample noise as generator input
         img, = generator(z)
     
     plt.imshow(np.squeeze(img.numpy()), cmap='binary')

@@ -158,15 +158,15 @@ if __name__ == '__main__':
 
     from config import config_options
 
-    options = config_options()
+    opt = config_options()
 
-    reader = Reader('/mnt/disk2/whn/etbl/TBL_1420_big/test/', options.datapath, options.img_size)
+    reader = Reader('/mnt/disk2/whn/etbl/TBL_1420_big/test/', opt.datapath, opt.img_size)
 
     dataloader = DataLoader(
         reader,
-        batch_size=options.batch_size,
+        batch_size=opt.batch_size,
         shuffle=True,
-        num_workers=options.n_cpu,
+        num_workers=opt.n_cpu,
         prefetch_factor=1,
     )
 

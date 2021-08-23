@@ -47,26 +47,26 @@ def loss_WGAN_GP(disnet, real_imgs, fake_imgs, lamb):
 
     return loss_D
 
-def save_for_resume(path, epoch, gennet, disnet, opt_G, opt_D, loss_G, loss_D):
+def save_for_resume(path, epoch, gennet, disnet, optimizer_G, optimizer_D, loss_G, loss_D):
     torch.save({
         'epoch': epoch,
         'G_state_dict': gennet.state_dict(),
         'D_state_dict': disnet.state_dict(),
-        'G_optimizer_state_dict': opt_G.state_dict(),
-        'D_optimizer_state_dict': opt_D.state_dict(),
+        'G_optimizer_state_dict': optimizer_G.state_dict(),
+        'D_optimizer_state_dict': optimizer_D.state_dict(),
         'G_loss': loss_G,
         'D_loss': loss_D,
         }, path + 'for_resume_ep%i.pt'%epoch)
 
-def load_for_resume(path, epoch, gennet, disnet, opt_G, opt_D):
+def load_for_resume(path, epoch, gennet, disnet, optimizer_G, optimizer_D):
     for_resume = torch.load(path + 'for_resume_ep%i.pt'%epoch, map_location='cpu') # load to cpu in case GPU is full
 
     assert epoch == for_resume['epoch'], "\nResume file error !\n"
 
     gennet.load_state_dict(for_resume['G_state_dict'])
     disnet.load_state_dict(for_resume['D_state_dict'])
-    opt_G.load_state_dict(for_resume['G_optimizer_state_dict'])
-    opt_D.load_state_dict(for_resume['D_optimizer_state_dict'])
+    optimizer_G.load_state_dict(for_resume['G_optimizer_state_dict'])
+    optimizer_D.load_state_dict(for_resume['D_optimizer_state_dict'])
 
     print('\nResume training from epoch %i.\n'%epoch)
 
@@ -74,12 +74,12 @@ def load_for_resume(path, epoch, gennet, disnet, opt_G, opt_D):
 
 if __name__ == '__main__':
 
-    options = config_options()
+    opt = config_options()
 
-    os.makedirs(options.datapath, exist_ok=True)
-    os.makedirs(options.workpath, exist_ok=True)
-    os.makedirs(options.workpath+'images/', exist_ok=True)
-    os.makedirs(options.workpath+'models/', exist_ok=True)
+    os.makedirs(opt.datapath, exist_ok=True)
+    os.makedirs(opt.workpath, exist_ok=True)
+    os.makedirs(opt.workpath+'images/', exist_ok=True)
+    os.makedirs(opt.workpath+'models/', exist_ok=True)
 
     # use CUDA whenever available
     cuda_on = torch.cuda.is_available()
@@ -87,47 +87,47 @@ if __name__ == '__main__':
     tensor = (torch.FloatTensor, torch.cuda.FloatTensor)[cuda_on]
 
     # Initialize generator and discriminator
-    gennet = Generator(options.latent_dim, options.img_size).to(device)
-    disnet = Discriminator(options.img_size).to(device)
+    gennet = Generator(opt.latent_dim, opt.img_size).to(device)
+    disnet = Discriminator(opt.img_size).to(device)
 
     # gennet.apply(weights_init_normal)
     # disnet.apply(weights_init_normal)
 
     dataloader = DataLoader(
-        Reader('/mnt/disk2/whn/etbl/TBLs/TBL_1420/test/', options.datapath, options.img_size),
-        batch_size=options.batch_size,
+        Reader('/mnt/disk2/whn/etbl/TBLs/TBL_1420/test/', opt.datapath, opt.img_size),
+        batch_size=opt.batch_size,
         shuffle=True,
-        num_workers=options.n_cpu,
+        num_workers=opt.n_cpu,
     )
 
     # Optimizers
-    opt_G = torch.optim.Adam(gennet.parameters(), lr=options.lr, betas=(options.b1, options.b2))
-    opt_D = torch.optim.Adam(disnet.parameters(), lr=options.lr, betas=(options.b1, options.b2))
+    optimizer_G = torch.optim.Adam(gennet.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
+    optimizer_D = torch.optim.Adam(disnet.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
 
     # Judge for measuring how well the generator is learning
     fid = FID(
         dataloader,
-        wrapped_dl_gen(gennet, options.latent_dim, options.batch_size),
-        options.workpath + 'models/inception_v3.pt',
+        wrapped_dl_gen(gennet, opt.latent_dim, opt.batch_size),
+        opt.workpath + 'models/inception_v3.pt',
     )
 
-    epoch = options.resume
+    epoch = opt.resume
 
     if epoch < 0:
         print('\nTrain from scratch.\n')
     else:
-        load_for_resume(options.workpath + 'models/', epoch, gennet, disnet, opt_G, opt_D)
+        load_for_resume(opt.workpath + 'models/', epoch, gennet, disnet, optimizer_G, optimizer_D)
 
-        if options.lr != 1:
-            print('\nMannually adjust lr by %f for resuming training.\n'%options.lr)
-            for g in opt_G.param_groups: g['lr'] *= options.lr
-            for g in opt_D.param_groups: g['lr'] *= options.lr
+        if opt.lr != 1:
+            print('\nMannually adjust lr by %f for resuming training.\n'%opt.lr)
+            for g in optimizer_G.param_groups: g['lr'] *= opt.lr
+            for g in optimizer_D.param_groups: g['lr'] *= opt.lr
 
-    # scheduler2_G = torch.optim.lr_scheduler.ReduceLROnPlateau(opt_G, factor=.5, patience=5, verbose=True)
-    # scheduler2_D = torch.optim.lr_scheduler.ReduceLROnPlateau(opt_D, factor=.5, patience=5, verbose=True)
+    # scheduler2_G = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_G, factor=.5, patience=5, verbose=True)
+    # scheduler2_D = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_D, factor=.5, patience=5, verbose=True)
 
-    scheduler_G = torch.optim.lr_scheduler.StepLR(opt_G, step_size=1 * int(options.n_critic**.5+.5), gamma=.9, last_epoch=epoch, verbose=True)
-    scheduler_D = torch.optim.lr_scheduler.StepLR(opt_D, step_size=1 * int(options.n_critic**.5+.5), gamma=.9, last_epoch=epoch, verbose=True)
+    scheduler_G = torch.optim.lr_scheduler.StepLR(optimizer_G, step_size=1 * int(opt.n_critic**.5+.5), gamma=.9, last_epoch=epoch, verbose=True)
+    scheduler_D = torch.optim.lr_scheduler.StepLR(optimizer_D, step_size=1 * int(opt.n_critic**.5+.5), gamma=.9, last_epoch=epoch, verbose=True)
 
     # ----------
     #  Training
@@ -136,7 +136,7 @@ if __name__ == '__main__':
     gennet.train()
     disnet.train()
 
-    while epoch < options.n_epochs * options.n_critic:
+    while epoch < opt.n_epochs * opt.n_critic:
         epoch += 1
         total_losses = []
 
@@ -150,7 +150,7 @@ if __name__ == '__main__':
             real_imgs = imgs.to(device).type(tensor)
 
             # Sample noise as gennet input
-            z = torch.randn((bs, options.latent_dim), device=device)
+            z = torch.randn((bs, opt.latent_dim), device=device)
 
             # tool arrays for computing BCE loss
             authentic = torch.ones(bs, device=device).view(-1,1)
@@ -161,25 +161,25 @@ if __name__ == '__main__':
             # ---------------------
 
             disnet.requires_grad_(True)
-            opt_D.zero_grad()
+            optimizer_D.zero_grad()
 
             # Generate a batch of images
             with torch.no_grad():
                 fake_imgs = gennet(z) # detach means the gradient of loss_D will not affect G through fake_imgs
 
-            loss_D = loss_WGAN_GP(disnet, real_imgs, fake_imgs, options.lambda_gp)
+            loss_D = loss_WGAN_GP(disnet, real_imgs, fake_imgs, opt.lambda_gp)
 
             loss_D.backward()
-            opt_D.step()
+            optimizer_D.step()
 
-            if iters % options.n_critic: continue
+            if iters % opt.n_critic: continue
 
             # -----------------
             #  Train Generator
             # -----------------
 
             disnet.requires_grad_(False)
-            opt_G.zero_grad()
+            optimizer_G.zero_grad()
 
             # Generate a batch of images
             fake_imgs = gennet(z)
@@ -200,17 +200,17 @@ if __name__ == '__main__':
             d1 = torch.mean(torch.maximum(distF_d1 - thres_d1, torch.zeros_like(distF_d1)).sum(dim=(1,2))**2)
             d2 = torch.mean(torch.maximum(distF_d2 - thres_d2, torch.zeros_like(distF_d1)).sum(dim=(1,2))**2)
 
-            loss_G = -disnet(fake_imgs).mean() + options.lambda_d1 * d1 + options.lambda_d2 * d2
+            loss_G = -disnet(fake_imgs).mean() + opt.lambda_d1 * d1 + opt.lambda_d2 * d2
 
             loss_G.backward()
-            opt_G.step()
+            optimizer_G.step()
 
-            np.savetxt(options.workpath + 'real_varu.dat', real_imgs[0,0].var(dim=-1).detach().cpu().numpy())
-            np.savetxt(options.workpath + 'fake_varu.dat', fake_imgs[0,0].var(dim=-1).detach().cpu().numpy())
-            np.savetxt(options.workpath + 'real_varv.dat', real_imgs[0,1].var(dim=-1).detach().cpu().numpy())
-            np.savetxt(options.workpath + 'fake_varv.dat', fake_imgs[0,1].var(dim=-1).detach().cpu().numpy())
-            np.savetxt(options.workpath + 'real_varw.dat', real_imgs[0,2].var(dim=-1).detach().cpu().numpy())
-            np.savetxt(options.workpath + 'fake_varw.dat', fake_imgs[0,2].var(dim=-1).detach().cpu().numpy())
+            np.savetxt(opt.workpath + 'real_varu.dat', real_imgs[0,0].var(dim=-1).detach().cpu().numpy())
+            np.savetxt(opt.workpath + 'fake_varu.dat', fake_imgs[0,0].var(dim=-1).detach().cpu().numpy())
+            np.savetxt(opt.workpath + 'real_varv.dat', real_imgs[0,1].var(dim=-1).detach().cpu().numpy())
+            np.savetxt(opt.workpath + 'fake_varv.dat', fake_imgs[0,1].var(dim=-1).detach().cpu().numpy())
+            np.savetxt(opt.workpath + 'real_varw.dat', real_imgs[0,2].var(dim=-1).detach().cpu().numpy())
+            np.savetxt(opt.workpath + 'fake_varw.dat', fake_imgs[0,2].var(dim=-1).detach().cpu().numpy())
 
             # ---------
             #  Monitor
@@ -219,38 +219,38 @@ if __name__ == '__main__':
             total_losses.append((loss_G + loss_D).item())
 
             print("[Epoch %d/%d] [Batch %d/%d] [D loss: %.4f] [G loss: %.4f]" % (
-                epoch, options.n_epochs * options.n_critic, i, len(dataloader), loss_D.item(), loss_G.item() ))
+                epoch, opt.n_epochs * opt.n_critic, i, len(dataloader), loss_D.item(), loss_G.item() ))
 
-            with open(options.workpath + 'log.dat', 'aw'[iters==0]) as fp:
+            with open(opt.workpath + 'log.dat', 'aw'[iters==0]) as fp:
                 fp.write(
                     '%i\t%.8e\t%.8e\t%.8e\t%.8e\n'%(
                     iters,
                     loss_D.item(),
                     loss_G.item(),
-                    options.lambda_d1 * d1.item(),
-                    options.lambda_d2 * d2.item(),
+                    opt.lambda_d1 * d1.item(),
+                    opt.lambda_d2 * d2.item(),
                     ))
 
-            if (iters//options.n_critic) % options.draw_every == 0:
+            if (iters//opt.n_critic) % opt.draw_every == 0:
                 vel = fake_imgs[0].detach().cpu().numpy()
                 ds = dataloader.dataset
                 ys = ds.gengrid(ds.para.Ly, vel.shape[-2])
                 zs = ds.para.Lz * np.arange(vel.shape[-1]) / vel.shape[-1]
 
                 gennet.eval()
-                with open(options.workpath + 'fid.dat', 'aw'[iters==0]) as fp:
+                with open(opt.workpath + 'fid.dat', 'aw'[iters==0]) as fp:
                     fidr, fid1, fid0 = fid.calc(relative=True)
                     fp.write('%i\t%.8e\t%.8e\t%.8e\n'%(iters, fidr, fid1, fid0))
                 gennet.train()
 
-                draw_vel(options.workpath + 'images/%d.png'%iters, vel, ys, zs)
-                draw_log(options.workpath + 'log.png', options.workpath + 'log.dat')
-                draw_fid(options.workpath + 'fid.png', options.workpath + 'fid.dat')
+                draw_vel(opt.workpath + 'images/%d.png'%iters, vel, ys, zs)
+                draw_log(opt.workpath + 'log.png', opt.workpath + 'log.dat')
+                draw_fid(opt.workpath + 'fid.png', opt.workpath + 'fid.dat')
 
         # save the model every epoch for resuming training
-        save_for_resume(options.workpath+'models/', epoch, gennet, disnet, opt_G, opt_D, loss_G, loss_D)
-        torch.save(gennet.state_dict(), options.workpath+'models/model_G.pt')
-        torch.save(disnet.state_dict(), options.workpath+'models/model_D.pt')
+        save_for_resume(opt.workpath+'models/', epoch, gennet, disnet, optimizer_G, optimizer_D, loss_G, loss_D)
+        torch.save(gennet.state_dict(), opt.workpath+'models/model_G.pt')
+        torch.save(disnet.state_dict(), opt.workpath+'models/model_D.pt')
         print('Resume file saved for epoch %i.'%epoch)
 
         # learning rate decay
