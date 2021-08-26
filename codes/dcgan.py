@@ -200,7 +200,7 @@ if __name__ == '__main__':
             d1 = torch.mean(torch.maximum(distF_d1 - thres_d1, torch.zeros_like(distF_d1)).sum(dim=(1,2))**2)
             d2 = torch.mean(torch.maximum(distF_d2 - thres_d2, torch.zeros_like(distF_d1)).sum(dim=(1,2))**2)
 
-            loss_G = -disnet(fake_imgs).mean() + opt.lambda_d1 * d1 + opt.lambda_d2 * d2
+            loss_G = -disnet(fake_imgs).mean() + .5**epoch * (opt.lambda_d1 * d1 + opt.lambda_d2 * d2)
 
             loss_G.backward()
             optimizer_G.step()

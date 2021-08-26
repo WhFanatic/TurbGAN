@@ -71,8 +71,8 @@ class Generator(nn.Module):
 
         def relu_with_pixnorm():
             return [
-                nn.LeakyReLU(.2),
                 Lambda(pixel_norm),
+                nn.LeakyReLU(.2),
             ]
 
         def repeat_block(in_features, out_features):
@@ -84,18 +84,24 @@ class Generator(nn.Module):
                 relu_with_pixnorm()
 
         # the starting size of feature maps at the entrance of conv blocks
-        start_size = img_size // 2**4 # 2**5 # the start_size turns into img_size through 5 Upsample
+        start_size = img_size // 2**3 # 2**5 # the start_size turns into img_size through 5 Upsample
 
         self.model = nn.Sequential(
+            # inlet block to handle the latent vector input
             Equalized(nn.Linear(latent_dim, 256 * start_size**2)),
             nn.Unflatten(1, (256, start_size, start_size)),
             *relu_with_pixnorm(),
             *conv_with_padding(256, 256),
+            *relu_with_pixnorm(), # should be a relu layer here?
+
+            # repeated blocks
             *repeat_block(256, 256),
             # *repeat_block(256, 256),
-            *repeat_block(256, 256),
+            # *repeat_block(256, 256),
             *repeat_block(256, 128),
             *repeat_block(128, 64),
+
+            # outlet block to finalize the output
             Equalized(nn.Conv2d(64, 3, 1)),
         )
 
@@ -123,15 +129,20 @@ class Discriminator(nn.Module):
             ]
 
         # The height and width of downsampled image
-        ds_size = img_size // 2**4 # 2**5 # each repeat_block results in a factor-2 downsample
+        ds_size = img_size // 2**3 # 2**5 # each repeat_block results in a factor-2 downsample
         
         self.model = nn.Sequential(
+            # inlet block to take the image as input
             Equalized(nn.Conv2d(3, 64, 1)),
+
+            # repeated blocks
             *repeat_block(64, 128),
             *repeat_block(128, 256),
-            *repeat_block(256, 256),
+            # *repeat_block(256, 256),
             # *repeat_block(256, 256),
             *repeat_block(256, 256),
+
+            # outlet block to finalize the output
             # Lambda(batch_std),
             # *conv_with_padding(257, 256),
             *conv_with_padding(256, 256),
