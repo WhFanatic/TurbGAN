@@ -34,6 +34,8 @@ def loss_WGAN_GP(disnet, real_imgs, fake_imgs, lamb):
     loss_WGAN = disnet(torch.cat((fake_imgs, real_imgs))).view(2,-1).mean(dim=-1)
     loss_WGAN = loss_WGAN[0] - loss_WGAN[1]
 
+    if not lamb: return loss_WGAN
+
     # GP: gradient penalty
     alpha = torch.rand(len(real_imgs), device=real_imgs.device).view(-1,1,1,1)
     inter_imgs = alpha * real_imgs + (1-alpha) * fake_imgs
