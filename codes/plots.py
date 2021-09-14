@@ -24,42 +24,56 @@ def dataClean(data):
 
 def draw_vel(figname, vel, ys, zs):
 
-    fig, axs = plt.subplots(3, 1, sharex=True, sharey=True, figsize=(3.2,7.2))
+    fig, axs = plt.subplots(3, 2, sharex=True, sharey=True, figsize=(6.4,7.2))
 
-    c1 = axs[0].contourf(zs, ys, vel[0])
-    c2 = axs[1].contourf(zs, ys, vel[1])
-    c3 = axs[2].contourf(zs, ys, vel[2])
+    c1 = axs[0,1].contourf(zs, ys, vel[3])
+    c2 = axs[1,1].contourf(zs, ys, vel[4])
+    c3 = axs[2,1].contourf(zs, ys, vel[5])
 
-    for ax in axs:
-        ax.set_ylabel(r'$y$')
-    axs[-1].set_xlabel(r'$z$')
+    axs[0,0].contourf(zs, ys, vel[0], levels=c1.levels)
+    axs[1,0].contourf(zs, ys, vel[1], levels=c2.levels)
+    axs[2,0].contourf(zs, ys, vel[2], levels=c3.levels)
+
+    for ax in axs[:,0]: ax.set_ylabel(r'$y$')
+    for ax in axs[-1]:  ax.set_xlabel(r'$z$')
+
+    fig.align_labels()
+    fig.tight_layout()
 
     plt.colorbar(c1, ax=axs[0])
     plt.colorbar(c2, ax=axs[1])
     plt.colorbar(c3, ax=axs[2])
 
-    fig.align_labels()
-    fig.tight_layout()
-
     fig.savefig(figname, dpi=300)
     plt.close()
 
-def draw_log(figname, filename):
+def draw_log(figname, filename, epochs):
 
     data = np.atleast_2d(np.loadtxt(filename))
     data = dataClean(data)
 
     fig, ax = plt.subplots()
 
-    ax.plot(data[:,0], data[:,1], '.-', lw=.5, markersize=1, label='D loss')
-    ax.plot(data[:,0], data[:,2], '.-', lw=.5, markersize=1, label='G loss')
-    ax.plot(data[:,0], data[:,3], '.-', lw=.5, markersize=1, label=r'$\lambda_1 d_1$')
-    ax.plot(data[:,0], data[:,4], '.-', lw=.5, markersize=1, label=r'$\lambda_2 d_2$')
+    # draw losses at every iteration
+    ax1 = ax.twiny()
+    ax1.plot(data[:,0], data[:,1], lw=.5, alpha=.5)
+    ax1.plot(data[:,0], data[:,2], lw=.5, alpha=.5)
+    ax1.plot(data[:,0], data[:,3], lw=.5, alpha=.5)
+    ax1.plot(data[:,0], data[:,4], lw=.5, alpha=.5)
 
-    ax.legend()
-    ax.set_xlabel('Iterations')
+    # draw mean losses of every epoch
+    data = data.reshape([epochs, -1, *data.shape[1:]]).mean(axis=1)
+    
+    ax.plot(np.arange(epochs), data[:,1], '.-', label='D loss')
+    ax.plot(np.arange(epochs), data[:,2], '.-', label='G loss')
+    ax.plot(np.arange(epochs), data[:,3], '.-', label=r'$\lambda_1 d_1$')
+    ax.plot(np.arange(epochs), data[:,4], '.-', label=r'$\lambda_2 d_2$')
 
     ax.set_ylim(np.multiply([-5, 10], np.abs(np.median(data[:,1:], axis=0)).max()))
+
+    ax.legend()
+    ax.set_xlabel('Epochs')
+    ax1.set_xlabel('Iterations')
 
     fig.tight_layout()
 
@@ -73,10 +87,10 @@ def draw_fid(figname, filename):
 
     fig, ax = plt.subplots()
 
-    ax.semilogy(data[:,0], data[:,1], '.-', lw=.5, markersize=1, label='FID/FID0')
+    ax.semilogy(data[:,0], data[:,1], '.-', label='FID/FID0')
 
     ax.set_ylabel('Relative FID')
-    ax.set_xlabel('Iterations')
+    ax.set_xlabel('Epochs')
 
     fig.tight_layout()
 

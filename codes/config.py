@@ -33,7 +33,7 @@ def config_options():
     parser.add_argument("--resume", type=int, default=-1, help="resume training from last epoch")
     
     # output options
-    parser.add_argument("--draw_every", type=int, default=500, help="interval between image sampling")
+    parser.add_argument("--draw_every", type=int, default=1, help="interval between image sampling")
 
     # -----------------
     # Hyper-parameters

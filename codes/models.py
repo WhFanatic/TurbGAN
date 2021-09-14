@@ -101,7 +101,10 @@ class Lambda(nn.Module):
     def forward(self, input):
         return self.func(input)
 
-def PadConv(in_features, out_features):
+def conv1x1(in_features, out_features):
+    return nn.Conv2d(in_features, out_features, 1)
+
+def conv3x3(in_features, out_features):
     # implement padding by hand: periodic for spanwise, zero for top & bottom
     # note: (l, r, t, b) for tensor, (l, r, b, t) for flow field
     return nn.Sequential(
@@ -109,6 +112,10 @@ def PadConv(in_features, out_features):
         nn.ZeroPad2d((0, 0, 1, 1)),
         nn.Conv2d(in_features, out_features, 3),
     )
+
+def defReLU():
+    # default leaky ReLU activation
+    return nn.LeakyReLU(.2, inplace=True)
 
 
 class Generator(nn.Module):
@@ -118,19 +125,16 @@ class Generator(nn.Module):
         def pixel_norm(x):
             return x / (torch.mean(x**2, dim=1, keepdim=True) + 1e-12)**.5
 
-        def PixNormLRelu():
+        def pnLReLU():
             # leaky ReLu with pixelwise normalization, negative slope 0.2
-            return nn.Sequential(
-                Lambda(pixel_norm),
-                nn.LeakyReLU(.2),
-                )
+            return nn.Sequential(Lambda(pixel_norm), defReLU())
 
         def MyBlock(in_features, out_features):
             # repeated block, each block enlarges the image by 2
             return nn.Sequential(
                 nn.Upsample(scale_factor=2),
-                PadConv(in_features, out_features), PixNormLRelu(),
-                PadConv(out_features,out_features), PixNormLRelu(),
+                conv3x3(in_features, out_features), pnLReLU(),
+                conv3x3(out_features,out_features), pnLReLU(),
                 )
 
         def InBlock(latent_dim, start_size):
@@ -138,9 +142,9 @@ class Generator(nn.Module):
             return nn.Sequential(
                 nn.Linear(latent_dim, latent_dim * start_size**2),
                 nn.Unflatten(1, (latent_dim, start_size, start_size)),
-                PixNormLRelu(),
-                PadConv(latent_dim, latent_dim),
-                PixNormLRelu(),
+                pnLReLU(),
+                conv3x3(latent_dim, latent_dim),
+                pnLReLU(),
                 )
 
         self.model = nn.Sequential(
@@ -150,7 +154,7 @@ class Generator(nn.Module):
             MyBlock(latent_dim,    latent_dim),    # channels 256 -> 256
             MyBlock(latent_dim,    latent_dim//2), # channels 256 -> 128
             MyBlock(latent_dim//2, latent_dim//4), # channels 128 -> 64
-            nn.Conv2d(latent_dim//4, 3, 1),
+            conv1x1(latent_dim//4, 3),
             )
 
         # initialize and apply equalized learning rate
@@ -173,20 +177,20 @@ class Discriminator(nn.Module):
         def MyBlock(in_features, out_features):
             # repeated block, each block shrinks the image by 1/2
             return nn.Sequential(
-                PadConv(in_features, in_features), nn.LeakyReLU(.2),
-                PadConv(in_features,out_features), nn.LeakyReLU(.2),
+                conv3x3(in_features, in_features), defReLU(),
+                conv3x3(in_features,out_features), defReLU(),
                 nn.AvgPool2d(2),
                 )
 
         self.iphys = nn.Sequential(
-            nn.Conv2d(3, 64, 1), nn.LeakyReLU(.2),
+            conv1x1(3,  64), defReLU(),
             MyBlock(64, 128),
             MyBlock(128,256),
             MyBlock(256,256),
             MyBlock(256,256),
             MyBlock(256,256),
             # Lambda(batch_std),
-            PadConv(256, 256), nn.LeakyReLU(.2),
+            conv3x3(256, 256), defReLU(),
             nn.Flatten(),
             )
 

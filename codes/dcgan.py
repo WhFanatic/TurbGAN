@@ -11,6 +11,7 @@ from models import Generator, Discriminator
 from reader import Reader
 from fid import FID, wrapped_dl_gen
 from plots import draw_vel, draw_log, draw_fid
+from recorder import save_for_resume, save_current
 
 
 def weights_init_normal(m):
@@ -25,6 +26,9 @@ def weights_init_normal(m):
         nn.init.normal_(m.weight.data, mean=1.0, std=0.02)
         nn.init.constant_(m.bias.data, 0)
 
+def loss_Hinge(disnet, real_imgs, fake_imgs):
+    zero = torch.tensor(0, device=real_imgs.device)
+    return torch.maximum(zero, 1 - disnet(real_imgs)).mean() + torch.maximum(zero, 1 + disnet(fake_imgs)).mean()
 
 def loss_WGAN_GP(disnet, real_imgs, fake_imgs, lamb):
     ## compute the WGAN-GP loss proposed by Gulrajani et al. 2017
@@ -48,29 +52,6 @@ def loss_WGAN_GP(disnet, real_imgs, fake_imgs, lamb):
     loss_D = loss_WGAN + lamb * loss_GP
 
     return loss_D
-
-def save_for_resume(path, epoch, gennet, disnet, optimizer_G, optimizer_D, loss_G, loss_D):
-    torch.save({
-        'epoch': epoch,
-        'G_state_dict': gennet.state_dict(),
-        'D_state_dict': disnet.state_dict(),
-        'G_optimizer_state_dict': optimizer_G.state_dict(),
-        'D_optimizer_state_dict': optimizer_D.state_dict(),
-        'G_loss': loss_G,
-        'D_loss': loss_D,
-        }, path + 'for_resume_ep%i.pt'%epoch)
-
-def load_for_resume(path, epoch, gennet, disnet, optimizer_G, optimizer_D):
-    for_resume = torch.load(path + 'for_resume_ep%i.pt'%epoch, map_location='cpu') # load to cpu in case GPU is full
-
-    assert epoch == for_resume['epoch'], "\nResume file error !\n"
-
-    gennet.load_state_dict(for_resume['G_state_dict'])
-    disnet.load_state_dict(for_resume['D_state_dict'])
-    optimizer_G.load_state_dict(for_resume['G_optimizer_state_dict'])
-    optimizer_D.load_state_dict(for_resume['D_optimizer_state_dict'])
-
-    print('\nResume training from epoch %i.\n'%epoch)
 
 
 
@@ -140,7 +121,6 @@ if __name__ == '__main__':
 
     while epoch < opt.n_epochs * opt.n_critic:
         epoch += 1
-        total_losses = []
 
         for i, imgs in enumerate(dataloader):
 
@@ -218,8 +198,6 @@ if __name__ == '__main__':
             #  Monitor
             # ---------
 
-            total_losses.append((loss_G + loss_D).item())
-
             print("[Epoch %d/%d] [Batch %d/%d] [D loss: %.4f] [G loss: %.4f]" % (
                 epoch, opt.n_epochs * opt.n_critic, i, len(dataloader), loss_D.item(), loss_G.item() ))
 
@@ -233,27 +211,25 @@ if __name__ == '__main__':
                     opt.lambda_d2 * d2.item(),
                     ))
 
-            if (iters//opt.n_critic) % opt.draw_every == 0:
-                vel = fake_imgs[0].detach().cpu().numpy()
-                ds = dataloader.dataset
-                ys = ds.gengrid(ds.para.Ly, vel.shape[-2])
-                zs = ds.para.Lz * np.arange(vel.shape[-1]) / vel.shape[-1]
+        if epoch % opt.draw_every == 0:
+            vel = np.concatenate((fake_imgs[0].detach().cpu().numpy(), real_imgs[0].detach().cpu().numpy()))
+            ds = dataloader.dataset
+            ys = ds.gengrid(ds.para.Ly, vel.shape[-2])
+            zs = ds.para.Lz * np.arange(vel.shape[-1]) / vel.shape[-1]
 
-                gennet.eval()
-                with open(opt.workpath + 'fid.dat', 'aw'[iters==0]) as fp:
-                    fidr, fid1, fid0 = fid.calc(relative=True)
-                    fp.write('%i\t%.8e\t%.8e\t%.8e\n'%(iters, fidr, fid1, fid0))
-                gennet.train()
+            gennet.eval()
+            with open(opt.workpath + 'fid.dat', 'aw'[epoch==0]) as fp:
+                fidr, fid1, fid0 = fid.calc(relative=True)
+                fp.write('%i\t%.8e\t%.8e\t%.8e\n'%(epoch, fidr, fid1, fid0))
+            gennet.train()
 
-                draw_vel(opt.workpath + 'images/%d.png'%iters, vel, ys, zs)
-                draw_log(opt.workpath + 'log.png', opt.workpath + 'log.dat')
-                draw_fid(opt.workpath + 'fid.png', opt.workpath + 'fid.dat')
+            draw_vel(opt.workpath + 'images/%d.png'%epoch, vel, ys, zs)
+            draw_log(opt.workpath + 'log.png', opt.workpath + 'log.dat', epoch+1)
+            draw_fid(opt.workpath + 'fid.png', opt.workpath + 'fid.dat')
 
         # save the model every epoch for resuming training
         save_for_resume(opt.workpath+'models/', epoch, gennet, disnet, optimizer_G, optimizer_D, loss_G, loss_D)
-        torch.save(gennet.state_dict(), opt.workpath+'models/model_G.pt')
-        torch.save(disnet.state_dict(), opt.workpath+'models/model_D.pt')
-        print('Resume file saved for epoch %i.'%epoch)
+        save_current(opt.workpath + 'models/', gennet, disnet)
 
         # learning rate decay
         scheduler_G.step()
