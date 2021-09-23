@@ -11,20 +11,10 @@ from models import Generator, Discriminator
 from reader import Reader
 from fid import FID, wrapped_dl_gen
 from plots import draw_vel, draw_log, draw_fid
-from recorder import save_for_resume, save_current
+from recorder import save_for_resume, load_for_resume, save_current
 
 
-def weights_init_normal(m):
-    # initiate parameters in all Conv, Linear and BN layers for an arbitrary model m
-    # when called by model.apply(), this function applies to all submodels in the model following LRD of the model tree
-    classname = m.__class__.__name__
 
-    if classname.find("Conv") >= 0 or classname.find("Linear") >= 0:
-        nn.init.kaiming_normal_(m.weight.data, a=.2)
-        nn.init.constant_(m.bias.data, 0)
-    elif classname.find("BatchNorm2d") >= 0:
-        nn.init.normal_(m.weight.data, mean=1.0, std=0.02)
-        nn.init.constant_(m.bias.data, 0)
 
 def loss_Hinge(disnet, real_imgs, fake_imgs):
     zero = torch.tensor(0, device=real_imgs.device)
@@ -73,8 +63,6 @@ if __name__ == '__main__':
     gennet = Generator(opt.latent_dim, opt.img_size).to(device)
     disnet = Discriminator(opt.img_size).to(device)
 
-    # gennet.apply(weights_init_normal)
-    # disnet.apply(weights_init_normal)
 
     dataloader = DataLoader(
         Reader('/mnt/disk2/whn/etbl/TBLs/TBL_1420/test/', opt.datapath, opt.img_size),
@@ -178,9 +166,9 @@ if __name__ == '__main__':
             thres_d1 = (real_std * .1)**2
             thres_d2 = (real_std * .3)**2
 
-            # d = < \Sigma{ max[ (S(x)-S(y))^2 - \epsilon^2 , 0 ] }^2 >
-            d1 = torch.mean(torch.maximum(distF_d1 - thres_d1, torch.zeros_like(distF_d1)).sum(dim=(1,2))**2)
-            d2 = torch.mean(torch.maximum(distF_d2 - thres_d2, torch.zeros_like(distF_d1)).sum(dim=(1,2))**2)
+            # d = < ||thres[ S(x)-S(y), eps ]||_F > = < \Sigma{max[ (S(x)-S(y))^2 - eps^2 , 0 ]}^.5 >
+            d1 = torch.mean(torch.maximum(distF_d1 - thres_d1, torch.zeros_like(distF_d1)).sum(dim=(1,2))**.5)
+            d2 = torch.mean(torch.maximum(distF_d2 - thres_d2, torch.zeros_like(distF_d1)).sum(dim=(1,2))**.5)
 
             loss_G = -disnet(fake_imgs).mean() + .5**epoch * (opt.lambda_d1 * d1 + opt.lambda_d2 * d2)
 
