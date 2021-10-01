@@ -24,12 +24,12 @@ def save_for_resume(path, epoch, gennet, disnet, optimizer_G, optimizer_D, loss_
     
     for m in (gennet, disnet): swap_dg(m)
 
-    torch.save(dic, path + 'for_resume_ep%i.pt'%epoch)
+    torch.save(dic, path + 'for_resume_ep%03i.pt'%epoch)
 
     print('Resume file saved for epoch %i.'%epoch)
 
 def load_for_resume(path, epoch, gennet, disnet, optimizer_G, optimizer_D):
-    for_resume = torch.load(path + 'for_resume_ep%i.pt'%epoch, map_location='cpu') # load to cpu in case GPU is full
+    for_resume = torch.load(path + 'for_resume_ep%03i.pt'%epoch, map_location='cpu') # load to cpu in case GPU is full
 
     assert epoch == for_resume['epoch'], "\nResume file error !\n"
 

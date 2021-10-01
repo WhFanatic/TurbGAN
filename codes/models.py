@@ -41,6 +41,7 @@ class SpecNorm:
         w = getattr(module, name)
         del module._parameters[name]
         module.register_parameter(name + '_orig', nn.Parameter(w.data))
+        module.register_buffer(name + '_u', torch.randn(w.size(0), 1, device=w.device) * .1)
 
         fn = SpecNorm(name)
         fn.compute_weight(module)
@@ -48,9 +49,7 @@ class SpecNorm:
 
     def compute_weight(self, module):
         w = getattr(module, self.name + '_orig')
-        u = getattr(module, self.name + '_u').to(w.device) if \
-            hasattr(module, self.name + '_u') else \
-            torch.randn(w.size(0), 1, requires_grad=False, device=w.device) * .1
+        u = getattr(module, self.name + '_u')
 
         # spectral normalization of the weight matrix
         w_sn = w.contiguous().view(w.size(0), -1)

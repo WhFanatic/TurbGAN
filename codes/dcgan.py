@@ -24,9 +24,7 @@ def loss_WGAN_GP(disnet, real_imgs, fake_imgs, lamb):
     ## compute the WGAN-GP loss proposed by Gulrajani et al. 2017
 
     # D loss for WGAN
-    # loss_WGAN = torch.mean(disnet(fake_imgs)) - torch.mean(disnet(real_imgs))
-    loss_WGAN = disnet(torch.cat((fake_imgs, real_imgs))).view(2,-1).mean(dim=-1)
-    loss_WGAN = loss_WGAN[0] - loss_WGAN[1]
+    loss_WGAN = torch.mean(disnet(fake_imgs)) - torch.mean(disnet(real_imgs))
 
     if not lamb: return loss_WGAN
 
@@ -36,7 +34,7 @@ def loss_WGAN_GP(disnet, real_imgs, fake_imgs, lamb):
     inter_imgs.requires_grad=True
 
     grads, = torch.autograd.grad(disnet(inter_imgs).sum(), inter_imgs, create_graph=True) # takes much memory
-    loss_GP = ((grads.view(len(grads), -1).norm(2, dim=1) - 1)**2).mean()
+    loss_GP = ((grads.norm(2, dim=[*range(1, grads.dim())]) - 1)**2).mean()
 
     # get loss for D
     loss_D = loss_WGAN + lamb * loss_GP
@@ -121,10 +119,6 @@ if __name__ == '__main__':
 
             # Sample noise as gennet input
             z = torch.randn((bs, opt.latent_dim), device=device)
-
-            # tool arrays for computing BCE loss
-            authentic = torch.ones(bs, device=device).view(-1,1)
-            counterfeit = torch.zeros(bs, device=device).view(-1,1)
 
             # ---------------------
             #  Train Discriminator
