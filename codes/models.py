@@ -100,6 +100,28 @@ class Lambda(nn.Module):
     def forward(self, input):
         return self.func(input)
 
+class ResNet(nn.Module):
+    # add shortcut connection to the two ends of a convolutional block
+    def __init__(self, module):#, in_features=None, out_features=None):
+        super().__init__()
+
+        # automatically infer in/out_features of the conv block
+        # use identity mapping whenever possible
+        for i, p in enumerate(module.parameters()):
+            in_features = p.data.size(1) if i == 0 else in_features
+            out_features= p.data.size(0)
+
+        self.module = module
+        self.bypass = nn.Identity() \
+            if in_features == out_features else \
+            nn.Conv2d(in_features, out_features, 1)
+
+    def forward(self, input):
+        out = self.module(input)
+        bps = self.bypass(input)
+        resize = nn.AdaptiveAvgPool2d(out.size()[-2:])
+        return out + resize(bps)
+
 def conv1x1(in_features, out_features):
     return nn.Conv2d(in_features, out_features, 1)
 
@@ -128,40 +150,62 @@ class Generator(nn.Module):
             # leaky ReLu with pixelwise normalization, negative slope 0.2
             return nn.Sequential(Lambda(pixel_norm), defReLU())
 
-        def MyBlock(in_features, out_features):
-            # repeated block, each block enlarges the image by 2
-            return nn.Sequential(
-                nn.Upsample(scale_factor=2),
-                conv3x3(in_features, out_features), pnLReLU(),
-                conv3x3(out_features,out_features), pnLReLU(),
-                )
-
-        def InBlock(latent_dim, start_size):
+        def FCBlock(latent_dim, start_size):
             # inlet block to handle the latent vector input
             return nn.Sequential(
                 nn.Linear(latent_dim, latent_dim * start_size**2),
                 nn.Unflatten(1, (latent_dim, start_size, start_size)),
-                pnLReLU(),
-                conv3x3(latent_dim, latent_dim),
-                pnLReLU(),
                 )
 
+        def InBlock(in_features, out_features):
+            module = nn.Sequential(
+                pnLReLU(),
+                conv3x3(in_features, out_features),
+                )
+            return ResNet(module)
+
+        def MyBlock(in_features, out_features):
+            # repeated block, each block enlarges the image by 2
+            module = nn.Sequential(
+                pnLReLU(),
+                nn.Upsample(scale_factor=2),
+                conv3x3(in_features, out_features),
+                pnLReLU(),
+                conv3x3(out_features,out_features),
+                )
+            return ResNet(module)
+
+        def ExBlock(in_features):
+            return nn.Sequential(
+                pnLReLU(),
+                conv1x1(in_features, 3)
+                )
+
+        self.inlet = \
+            FCBlock(latent_dim,    img_size//2**5)
+
         self.model = nn.Sequential(
-            InBlock(latent_dim,    img_size//2**5),
+            InBlock(latent_dim,    latent_dim),
             MyBlock(latent_dim,    latent_dim),    # channels 256 -> 256
             MyBlock(latent_dim,    latent_dim),    # channels 256 -> 256
             MyBlock(latent_dim,    latent_dim),    # channels 256 -> 256
             MyBlock(latent_dim,    latent_dim//2), # channels 256 -> 128
             MyBlock(latent_dim//2, latent_dim//4), # channels 128 -> 64
-            conv1x1(latent_dim//4, 3),
+            ExBlock(latent_dim//4),                # return the generated images
             )
 
         # initialize and apply equalized learning rate
+        setModule(self.inlet, eqlr=True)
         setModule(self.model, eqlr=True)
 
     def forward(self, zs):
-        # return the generated images
-        return self.model(zs)
+        return self.model(self.inlet(zs))
+
+    # def forward(self, zs, ys):
+    #     out = self.inlet(zs)
+    #     out = out + ys.view(-1, *([1] * (out.dim()-1)))
+    #     out = self.model(out)
+    #     return out
 
 
 class Discriminator(nn.Module):
@@ -173,48 +217,67 @@ class Discriminator(nn.Module):
             std_map = torch.ones_like(x[:,:1]) * torch.std(x, dim=0).mean()
             return torch.cat((x, std_map), dim=1)
 
+        def InBlock(out_features):
+            return conv1x1(3, out_features)
+
         def MyBlock(in_features, out_features):
             # repeated block, each block shrinks the image by 1/2
-            return nn.Sequential(
-                conv3x3(in_features, in_features), defReLU(),
-                conv3x3(in_features,out_features), defReLU(),
+            module = nn.Sequential(
+                defReLU(),
+                conv3x3(in_features, in_features),
+                defReLU(),
+                conv3x3(in_features,out_features),
                 nn.AvgPool2d(2),
                 )
+            return ResNet(module)
 
-        self.iphys = nn.Sequential(
-            conv1x1(3,  64), defReLU(),
+        def ExBlock(in_features, final_size):
+            return nn.Sequential(
+                defReLU(),
+                # Lambda(batch_std),
+                conv3x3(in_features, in_features),
+                defReLU(),
+                nn.Conv2d(in_features, in_features, final_size), # Equal to nn.Linear(in_features * final_size**2, in_features),
+                defReLU(),
+                nn.Flatten(),
+                )
+
+        def FCBlock1(in_features):
+            return nn.Linear(in_features, 1)
+
+        def FCBlock2(out_features):
+            return nn.Linear(1, out_features, bias=False)
+
+        def FinalAct():
+            return nn.Identity() # nn.Sigmoid() # not needed in WGAN, where the discrimintator becomes a critic
+
+        self.model = nn.Sequential(
+            InBlock(64),
             MyBlock(64, 128),
             MyBlock(128,256),
             MyBlock(256,256),
             MyBlock(256,256),
             MyBlock(256,256),
-            # Lambda(batch_std),
-            conv3x3(256, 256), defReLU(),
-            nn.Flatten(),
+            ExBlock(256,img_size//32),
             )
 
-        # self.ispec = nn.Sequential(
-        #     nn.Flatten(),
-        #     nn.Linear( img_size**2 * 3, (img_size//8)**2), nn.LeakyReLU(.2),
-        #     nn.Linear((img_size//8)**2, (img_size//32)**2),nn.LeakyReLU(.2),
-        #     )
+        self.linear1 = FCBlock1(256)
+        # self.linear2 = FCBlock2(256)
+        # self.outlet  = FinalAct()
 
-        self.model = nn.Sequential(
-            nn.Linear(256 * (img_size//32)**2, 256),
-            nn.LeakyReLU(.2),
-            nn.Linear(256, 1),
-            # nn.Sigmoid(), # not needed in WGAN, where the discrimintator becomes a critic
-            )
-
-        setModule(self.iphys, eqlr=True)
-        # setModule(self.ispec, eqlr=True)
         setModule(self.model, eqlr=True)
+        setModule(self.linear1, eqlr=True)
+        # setModule(self.linear2, eqlr=True)
+        # setModule(self.outlet, eqlr=True)
 
-    def forward(self, imgs):
-        ophys = self.iphys(imgs)
-        return self.model(ophys)
-        # ospec = self.ispec(self.spec(imgs))
-        # return self.model(torch.cat((ophys, ospec), dim=-1))
+    def forward(self, xs):
+        return self.linear1(self.model(xs))
+
+    # def forward(self, xs, ys):
+    #     out = self.model(xs)
+    #     out_y = self.linear2(ys + 1) # why +1 ? (following GitHub code of Ding et al. 2021)
+    #     out = self.outlet(self.linear1(out) + (out * out_y).sum(dim=-1))
+    #     return out
 
     def spec(self, imgs):
         ''' get the spectral representation of the images,

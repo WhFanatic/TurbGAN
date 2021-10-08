@@ -63,7 +63,7 @@ if __name__ == '__main__':
 
 
     dataloader = DataLoader(
-        Reader('/mnt/disk2/whn/etbl/TBLs/TBL_1420/test/', opt.datapath, opt.img_size),
+        Reader('/mnt/disk2/whn/etbl/TBLs/TBL_1420_oldout/test/', opt.datapath, opt.img_size),
         batch_size=opt.batch_size,
         shuffle=True,
         num_workers=opt.n_cpu,
