@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 
-import basic
+from rawdata import basic, statis
 
 
 class Reader_raw(Dataset):
