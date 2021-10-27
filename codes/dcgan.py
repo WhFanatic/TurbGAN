@@ -41,6 +41,11 @@ def loss_WGAN_GP(disnet, real_imgs, fake_imgs, lamb):
 
     return loss_D
 
+def check_vars(path, real_imgs, fake_imgs):
+    i = np.random.randint(len(real_imgs))
+    for j, v in enumerate('uvw'):
+        np.savetxt(path + 'real_var%s.dat'%v, real_imgs[i,j].detach().var(dim=-1).cpu().numpy())
+        np.savetxt(path + 'fake_var%s.dat'%v, fake_imgs[i,j].detach().var(dim=-1).cpu().numpy())
 
 
 if __name__ == '__main__':
@@ -102,13 +107,12 @@ if __name__ == '__main__':
     #  Training
     # ----------
 
-    gennet.train()
-    disnet.train()
-
     while epoch < opt.n_epochs * opt.n_critic:
         epoch += 1
 
         for i, imgs in enumerate(dataloader):
+        gennet.train()
+        disnet.train()
 
             iters = epoch * len(dataloader) + i
 
@@ -169,13 +173,6 @@ if __name__ == '__main__':
             loss_G.backward()
             optimizer_G.step()
 
-            np.savetxt(opt.workpath + 'real_varu.dat', real_imgs[0,0].var(dim=-1).detach().cpu().numpy())
-            np.savetxt(opt.workpath + 'fake_varu.dat', fake_imgs[0,0].var(dim=-1).detach().cpu().numpy())
-            np.savetxt(opt.workpath + 'real_varv.dat', real_imgs[0,1].var(dim=-1).detach().cpu().numpy())
-            np.savetxt(opt.workpath + 'fake_varv.dat', fake_imgs[0,1].var(dim=-1).detach().cpu().numpy())
-            np.savetxt(opt.workpath + 'real_varw.dat', real_imgs[0,2].var(dim=-1).detach().cpu().numpy())
-            np.savetxt(opt.workpath + 'fake_varw.dat', fake_imgs[0,2].var(dim=-1).detach().cpu().numpy())
-
             # ---------
             #  Monitor
             # ---------
@@ -193,21 +190,7 @@ if __name__ == '__main__':
                     opt.lambda_d2 * d2.item(),
                     ))
 
-        if epoch % opt.draw_every == 0:
-            vel = np.concatenate((fake_imgs[0].detach().cpu().numpy(), real_imgs[0].detach().cpu().numpy()))
-            ds = dataloader.dataset
-            ys = ds.gengrid(ds.para.Ly, vel.shape[-2])
-            zs = ds.para.Lz * np.arange(vel.shape[-1]) / vel.shape[-1]
-
-            gennet.eval()
-            with open(opt.workpath + 'fid.dat', 'aw'[epoch==0]) as fp:
-                fidr, fid1, fid0 = fid.calc(relative=True)
-                fp.write('%i\t%.8e\t%.8e\t%.8e\n'%(epoch, fidr, fid1, fid0))
-            gennet.train()
-
-            draw_vel(opt.workpath + 'images/%d.png'%epoch, vel, ys, zs)
-            draw_log(opt.workpath + 'log.png', opt.workpath + 'log.dat', epoch+1)
-            draw_fid(opt.workpath + 'fid.png', opt.workpath + 'fid.dat')
+            check_vars(opt.workpath, real_imgs, fake_imgs)
 
         # save the model every epoch for resuming training
         save_for_resume(opt.workpath+'models/', epoch, gennet, disnet, optimizer_G, optimizer_D, loss_G, loss_D)
@@ -221,6 +204,27 @@ if __name__ == '__main__':
         # scheduler2_D.step(np.mean(total_losses))
         # total_losses = []
 
+        # ---------
+        # Visualize
+        # ---------
+
+        if epoch % opt.draw_every == 0:
+            vel = np.concatenate((
+                fake_imgs[0].detach().cpu().numpy(),
+                real_imgs[0].detach().cpu().numpy()))
+
+            with h5py.File(opt.datapath + os.listdir(opt.datapath)[0], "r") as f:
+                ys = f['ys'][:]
+                zs = f['zs'][:]
+
+            gennet.eval()
+            with open(opt.workpath + 'fid.dat', 'aw'[epoch==0]) as fp:
+                fidr, fid1, fid0 = fid.calc(relative=True)
+                fp.write('%i\t%.8e\t%.8e\t%.8e\n'%(epoch, fidr, fid1, fid0))
+
+            draw_vel(opt.workpath + 'images/%d.png'%epoch, vel, ys, zs)
+            draw_log(opt.workpath + 'log.png', opt.workpath + 'log.dat', epoch+1)
+            draw_fid(opt.workpath + 'fid.png', opt.workpath + 'fid.dat')
 
 
 

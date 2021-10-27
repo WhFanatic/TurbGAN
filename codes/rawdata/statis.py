@@ -2,9 +2,9 @@ import os
 import numpy as np
 import numpy.fft as ft
 
-from basic import Field
-from tools import Tools as tool
-import fileIO
+from .basic import Field
+from .tools import Tools as tool
+from . import fileIO
 
 
 class Statis:
