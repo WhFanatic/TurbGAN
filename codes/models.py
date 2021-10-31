@@ -73,14 +73,15 @@ class SpecNorm:
 
 def setModule(module, eqlr=False, specnorm=False):
     def func(m):
+        if hasattr(m, 'bias') and getattr(m, 'bias') is not None:
+            m.bias.data.zero_()
+
         if not hasattr(m, 'weight'): return
 
         if eqlr:
             m.weight.data.normal_(mean=0, std=1)
-            m.bias.data.zero_()
         else:
             nn.init.kaiming_normal_(m.weight)
-            m.bias.data.zero_()
 
         if eqlr:
             EqualLR.apply(m, 'weight')
@@ -198,8 +199,8 @@ class Generator(nn.Module):
         setModule(self.inlet, eqlr=True)
         setModule(self.model, eqlr=True)
 
-    def forward(self, zs):
-        return self.model(self.inlet(zs))
+    def forward(self, zs, ys=None):
+        if ys is None: return self.model(self.inlet(zs))
 
     # def forward(self, zs, ys):
     #     out = self.inlet(zs)
@@ -209,7 +210,7 @@ class Generator(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, img_size):
+    def __init__(self, img_size, final_dim):
         super().__init__()
 
         def batch_std(x):
@@ -252,26 +253,27 @@ class Discriminator(nn.Module):
             return nn.Identity() # nn.Sigmoid() # not needed in WGAN, where the discrimintator becomes a critic
 
         self.model = nn.Sequential(
-            InBlock(64),
-            MyBlock(64, 128),
-            MyBlock(128,256),
-            MyBlock(256,256),
-            MyBlock(256,256),
-            MyBlock(256,256),
-            ExBlock(256,img_size//32),
+            InBlock(final_dim//4),
+            MyBlock(final_dim//4,final_dim//2),
+            MyBlock(final_dim//2,final_dim),
+            MyBlock(final_dim,   final_dim),
+            MyBlock(final_dim,   final_dim),
+            MyBlock(final_dim,   final_dim),
+            ExBlock(final_dim,   img_size//2**5),
             )
 
-        self.linear1 = FCBlock1(256)
-        # self.linear2 = FCBlock2(256)
-        # self.outlet  = FinalAct()
+        self.linear1 = FCBlock1(final_dim)
+        self.linear2 = FCBlock2(final_dim)
+        self.outlet  = FinalAct()
 
         setModule(self.model, eqlr=True)
         setModule(self.linear1, eqlr=True)
-        # setModule(self.linear2, eqlr=True)
-        # setModule(self.outlet, eqlr=True)
+        setModule(self.linear2, eqlr=True)
+        setModule(self.outlet, eqlr=True)
 
-    def forward(self, xs):
-        return self.linear1(self.model(xs))
+    def forward(self, xs, ys=None):
+        if ys is None: return self.outlet(self.linear1(self.model(xs)))
+
 
     # def forward(self, xs, ys):
     #     out = self.model(xs)

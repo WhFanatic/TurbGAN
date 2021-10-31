@@ -14,32 +14,24 @@ from plots import draw_vel, draw_log, draw_fid
 from recorder import save_for_resume, load_for_resume, save_current
 
 
+def statis_constraint(real_imgs, fake_imgs):
+    ''' imprecise statistical constraints (Yang, Wu & Xiao 2021; Wu et al. 2020) '''
+    # assuming the Re of each sample in fake batch is in accordance with that in real batch
+    real_ave = real_imgs.mean(dim=-1)
+    fake_ave = fake_imgs.mean(dim=-1)
+    real_std = real_imgs.std(dim=-1)
+    fake_std = fake_imgs.std(dim=-1)
 
+    distF_d1 = (fake_ave - real_ave)**2
+    distF_d2 = (fake_std - real_std)**2
+    thres_d1 = (real_std * .1)**2
+    thres_d2 = (real_std * .3)**2
 
-def loss_Hinge(disnet, real_imgs, fake_imgs):
-    zero = torch.tensor(0, device=real_imgs.device)
-    return torch.maximum(zero, 1 - disnet(real_imgs)).mean() + torch.maximum(zero, 1 + disnet(fake_imgs)).mean()
+    # d = < ||thres[ S(x)-S(y), eps ]||_F > = < \Sigma{max[ (S(x)-S(y))^2 - eps^2 , 0 ]}^.5 >
+    d1 = torch.mean(torch.maximum(distF_d1 - thres_d1, torch.zeros_like(distF_d1)).sum(dim=(1,2))**.5)
+    d2 = torch.mean(torch.maximum(distF_d2 - thres_d2, torch.zeros_like(distF_d1)).sum(dim=(1,2))**.5)
 
-def loss_WGAN_GP(disnet, real_imgs, fake_imgs, lamb):
-    ## compute the WGAN-GP loss proposed by Gulrajani et al. 2017
-
-    # D loss for WGAN
-    loss_WGAN = torch.mean(disnet(fake_imgs)) - torch.mean(disnet(real_imgs))
-
-    if not lamb: return loss_WGAN
-
-    # GP: gradient penalty
-    alpha = torch.rand(len(real_imgs), device=real_imgs.device).view(-1,1,1,1)
-    inter_imgs = alpha * real_imgs + (1-alpha) * fake_imgs
-    inter_imgs.requires_grad=True
-
-    grads, = torch.autograd.grad(disnet(inter_imgs).sum(), inter_imgs, create_graph=True) # takes much memory
-    loss_GP = ((grads.norm(2, dim=[*range(1, grads.dim())]) - 1)**2).mean()
-
-    # get loss for D
-    loss_D = loss_WGAN + lamb * loss_GP
-
-    return loss_D
+    return d1, d2
 
 def check_vars(path, real_imgs, fake_imgs):
     i = np.random.randint(len(real_imgs))
@@ -64,8 +56,7 @@ if __name__ == '__main__':
 
     # Initialize generator and discriminator
     gennet = Generator(opt.latent_dim, opt.img_size).to(device)
-    disnet = Discriminator(opt.img_size).to(device)
-
+    disnet = Discriminator(opt.img_size, opt.latent_dim).to(device)
 
     dataloader = DataLoader(
         Reader('/mnt/disk2/whn/etbl/TBLs/TBL_1420_oldout/test/', opt.datapath, opt.img_size),
@@ -152,21 +143,9 @@ if __name__ == '__main__':
             # Generate a batch of images
             fake_imgs = gennet(z)
 
-            # imprecise statistical constraints (Yang, Wu & Xiao 2021; Wu et al. 2020)
-            # assuming the Re of each sample in fake batch is in accordance with that in real batch
-            real_ave = real_imgs.mean(dim=-1)
-            fake_ave = fake_imgs.mean(dim=-1)
-            real_std = real_imgs.std(dim=-1)
-            fake_std = fake_imgs.std(dim=-1)
 
-            distF_d1 = (fake_ave - real_ave)**2
-            distF_d2 = (fake_std - real_std)**2
-            thres_d1 = (real_std * .1)**2
-            thres_d2 = (real_std * .3)**2
-
-            # d = < ||thres[ S(x)-S(y), eps ]||_F > = < \Sigma{max[ (S(x)-S(y))^2 - eps^2 , 0 ]}^.5 >
-            d1 = torch.mean(torch.maximum(distF_d1 - thres_d1, torch.zeros_like(distF_d1)).sum(dim=(1,2))**.5)
-            d2 = torch.mean(torch.maximum(distF_d2 - thres_d2, torch.zeros_like(distF_d1)).sum(dim=(1,2))**.5)
+            # physical constraints
+            d1, d2 = statis_constraint(real_imgs, fake_imgs)
 
             loss_G = -disnet(fake_imgs).mean() + .5**epoch * (opt.lambda_d1 * d1 + opt.lambda_d2 * d2)
 
