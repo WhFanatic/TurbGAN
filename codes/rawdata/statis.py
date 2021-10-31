@@ -157,6 +157,32 @@ class Statis_x(Statis):
 		self.Wm = np.zeros([Ny+1, Nx-1])
 		self.Pm = np.zeros([Ny+1, Nx-1])
 
+		import h5py
+
+		if isinstance(tsteps, str):
+			try:
+				with h5py.File(tsteps, 'r') as f:
+					meanfile = tsteps
+			except:
+				tsteps = self.para.tsteps
+
+		if 'meanfile' in locals():
+			print('Reading umean from', meanfile)
+			with h5py.File(meanfile, 'r') as f:
+				xs = f['xs'][:]
+				ys = f['ys'][:]
+				um = f['um'][:]
+				vm = f['vm'][:]
+				wm = f['wm'][:]
+				pm = f['pm'][:]
+			
+			from scipy.interpolate import RectBivariateSpline
+			self.Um = RectBivariateSpline(ys, xs, um)(self.para.yc, self.para.xc[1:-1])
+			self.Vm = RectBivariateSpline(ys, xs, vm)(self.para.yc, self.para.xc[1:-1])
+			self.Wm = RectBivariateSpline(ys, xs, wm)(self.para.yc, self.para.xc[1:-1])
+			self.Pm = RectBivariateSpline(ys, xs, pm)(self.para.yc, self.para.xc[1:-1])
+			return
+
 		for tstep in tsteps:
 			print("Reading umean: tstep", tstep)
 			u = self.feld.read('U%08i.bin'%tstep)
@@ -205,31 +231,26 @@ class Statis_x(Statis):
 			w = self.feld.read('W%08i.bin'%tstep)
 			p = self.feld.read('P%08i.bin'%tstep)
 
-			um = self.Um
-			vm = self.Vm
-			wm = self.Wm
-			pm = self.Pm
+			u -= np.expand_dims(self.Um, axis=1)
+			v -= np.expand_dims(self.Vm, axis=1)
+			w -= np.expand_dims(self.Wm, axis=1)
+			p -= np.expand_dims(self.Pm, axis=1)
 
 			fu = ft.ihfft(u, axis=1)
 			fv = ft.ihfft(v, axis=1)
 			fw = ft.ihfft(w, axis=1)
 			fp = ft.ihfft(p, axis=1)
 
-			fu[:,0] -= um
-			fv[:,0] -= vm
-			fw[:,0] -= wm
-			fp[:,0] -= pm
-
-			self.Ruu += np.mean(u**2, axis=1) - um**2
-			self.Rvv += np.mean(v**2, axis=1) - vm**2
-			self.Rww += np.mean(w**2, axis=1) - wm**2
-			self.Ruv += np.mean(u*v,  axis=1) - um*vm
-			self.Rvw += np.mean(v*w,  axis=1) - vm*wm
-			self.Ruw += np.mean(u*w,  axis=1) - um*wm
-			self.Rpu += np.mean(p*u,  axis=1) - pm*um
-			self.Rpv += np.mean(p*v,  axis=1) - pm*vm
-			self.Rpw += np.mean(p*w,  axis=1) - pm*wm
-			self.Rpp += np.mean(p**2, axis=1) - pm**2
+			self.Ruu += np.mean(u**2, axis=1)
+			self.Rvv += np.mean(v**2, axis=1)
+			self.Rww += np.mean(w**2, axis=1)
+			self.Ruv += np.mean(u*v,  axis=1)
+			self.Rvw += np.mean(v*w,  axis=1)
+			self.Ruw += np.mean(u*w,  axis=1)
+			self.Rpu += np.mean(p*u,  axis=1)
+			self.Rpv += np.mean(p*v,  axis=1)
+			self.Rpw += np.mean(p*w,  axis=1)
+			self.Rpp += np.mean(p**2, axis=1)
 
 			self.Euu += np.abs(fu)**2
 			self.Evv += np.abs(fv)**2
