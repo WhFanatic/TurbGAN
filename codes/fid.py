@@ -131,7 +131,7 @@ class FID:
         cnt = 0
 
         while cnt < num:
-            for imgs in dataloader:
+            for imgs, _ in dataloader:
 
                 with torch.no_grad():
                     acts = incep_net.to(imgs.device)(FID.preproc_imgs(imgs))
@@ -167,8 +167,10 @@ def wrapped_dl_gen(gennet, latent_dim, batch_size=1):
 
         def __getitem__(self, i):
             with torch.no_grad():
-                img, = self.g(torch.randn((1, self.n), device=next(self.g.parameters()).device))
-            return img
+                latent = torch.randn((1, self.n), device=next(self.g.parameters()).device)
+                lb = torch.rand(1, device=latent.device)
+                img, = self.g(latent, lb)
+            return img, lb
 
         def __len__(self):
             return 99999999

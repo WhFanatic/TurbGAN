@@ -1,17 +1,19 @@
 import os
 import numpy as np
+import h5py
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler, BatchSampler
 
 from config import config_options
 from models import Generator, Discriminator
-from reader import Reader
+from reader import MyDataset
 from fid import FID, wrapped_dl_gen
 from plots import draw_vel, draw_log, draw_fid
 from recorder import save_for_resume, load_for_resume, save_current
+from losses import loss_D_CcGAN_WGAN, loss_G_CcGAN_WGAN
 
 
 def statis_constraint(real_imgs, fake_imgs):
@@ -58,11 +60,17 @@ if __name__ == '__main__':
     gennet = Generator(opt.latent_dim, opt.img_size).to(device)
     disnet = Discriminator(opt.img_size, opt.latent_dim).to(device)
 
+    # Define Dataset & Dataloader
+    dataset = MyDataset(opt.datapath, img_size=opt.img_size)
     dataloader = DataLoader(
-        Reader('/mnt/disk2/whn/etbl/TBLs/TBL_1420_oldout/test/', opt.datapath, opt.img_size),
-        batch_size=opt.batch_size,
-        shuffle=True,
+        dataset,
+        batch_sampler=BatchSampler(
+            sampler=WeightedRandomSampler(dataset.label_balancer(), num_samples=len(dataset)),
+            batch_size=opt.batch_size,
+            drop_last=False,
+            ),
         num_workers=opt.n_cpu,
+        prefetch_factor=8,
     )
 
     # Optimizers
@@ -94,6 +102,21 @@ if __name__ == '__main__':
     scheduler_G = torch.optim.lr_scheduler.StepLR(optimizer_G, step_size=1 * int(opt.n_critic**.5+.5), gamma=.9, last_epoch=epoch, verbose=True)
     scheduler_D = torch.optim.lr_scheduler.StepLR(optimizer_D, step_size=1 * int(opt.n_critic**.5+.5), gamma=.9, last_epoch=epoch, verbose=True)
 
+
+
+    sigma = 1e-20 # (4/3/len(dataset))**.2 * np.std(np.unique(dataset.get_labels()))
+    nu = 1e-20 # (20 * np.diff(dataset.get_labels()).max())**-2 # 20 means at least neighbouring 40 labels can contribute to the conditional distribution
+    thres_w = 1e-3
+    lab_gap = (-np.log(thres_w)/nu)**.5
+
+    print('\nCcGAN parameters:')
+    print('sigma =', sigma)
+    print('nu =', nu)
+    print('thres_w =', thres_w)
+    print('lab_gap =', lab_gap)
+    print()
+
+
     # ----------
     #  Training
     # ----------
@@ -101,19 +124,35 @@ if __name__ == '__main__':
     while epoch < opt.n_epochs * opt.n_critic:
         epoch += 1
 
-        for i, imgs in enumerate(dataloader):
         gennet.train()
         disnet.train()
+
+        for i, (imgs, labs) in enumerate(dataloader):
 
             iters = epoch * len(dataloader) + i
 
             bs = len(imgs) # size of the current batch, may be different for the last batch
 
             # put loaded batch into CUDA
-            real_imgs = imgs.to(device).type(tensor)
+            imgs = imgs.type(tensor)
+            labs = labs.type(tensor)
+
+            # draw labels in neighbourhoods of samples
+            eps = torch.randn_like(labs) * sigma
+            ids = [dataset.get_labelled(lb, eps=lab_gap) for lb in (labs - eps)]
+            
+            real_imgs = imgs
+            real_labs = tensor([dataset[_][1] for _ in ids]) + eps
+            fake_labs = real_labs + (torch.rand_like(real_labs) * 2 - 1) * lab_gap
+            
+            wrs = torch.exp(-nu * (real_labs - labs)**2)
+            wfs = torch.exp(-nu * (real_labs - fake_labs)**2)
+
+            wrs /= wrs.mean()
+            wfs /= wfs.mean()
 
             # Sample noise as gennet input
-            z = torch.randn((bs, opt.latent_dim), device=device)
+            zs = torch.randn(bs, opt.latent_dim, device=device).type(tensor)
 
             # ---------------------
             #  Train Discriminator
@@ -124,9 +163,12 @@ if __name__ == '__main__':
 
             # Generate a batch of images
             with torch.no_grad():
-                fake_imgs = gennet(z) # detach means the gradient of loss_D will not affect G through fake_imgs
+                fake_imgs = gennet(zs, fake_labs)
 
-            loss_D = loss_WGAN_GP(disnet, real_imgs, fake_imgs, opt.lambda_gp)
+            loss_D = loss_D_CcGAN_WGAN(
+                disnet,
+                real_imgs, real_labs, wrs,
+                fake_imgs, fake_labs, wfs, opt.lambda_gp)
 
             loss_D.backward()
             optimizer_D.step()
@@ -141,13 +183,13 @@ if __name__ == '__main__':
             optimizer_G.zero_grad()
 
             # Generate a batch of images
-            fake_imgs = gennet(z)
-
+            fake_labs = sigma* torch.randn_like(labs) + labs # fake labels should correspond to real images
+            fake_imgs = gennet(torch.randn_like(zs), fake_labs)
 
             # physical constraints
             d1, d2 = statis_constraint(real_imgs, fake_imgs)
 
-            loss_G = -disnet(fake_imgs).mean() + .5**epoch * (opt.lambda_d1 * d1 + opt.lambda_d2 * d2)
+            loss_G = loss_G_CcGAN_WGAN(disnet, fake_imgs, fake_labs) + .5**epoch * (opt.lambda_d1 * d1 + opt.lambda_d2 * d2)
 
             loss_G.backward()
             optimizer_G.step()

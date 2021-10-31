@@ -126,11 +126,12 @@ class ResNet(nn.Module):
 def conv1x1(in_features, out_features):
     return nn.Conv2d(in_features, out_features, 1)
 
-def conv3x3(in_features, out_features):
+def conv3x3(in_features, out_features, zprd=False):
     # implement padding by hand: periodic for spanwise, zero for top & bottom
     # note: (l, r, t, b) for tensor, (l, r, b, t) for flow field
     return nn.Sequential(
-        nn.ReplicationPad2d((1, 1, 0, 0)),
+        nn.ReplicationPad2d((1, 1, 0, 0)) if zprd else \
+        nn.ZeroPad2d((1, 1, 0, 0)),
         nn.ZeroPad2d((0, 0, 1, 1)),
         nn.Conv2d(in_features, out_features, 3),
     )
@@ -202,11 +203,12 @@ class Generator(nn.Module):
     def forward(self, zs, ys=None):
         if ys is None: return self.model(self.inlet(zs))
 
-    # def forward(self, zs, ys):
-    #     out = self.inlet(zs)
-    #     out = out + ys.view(-1, *([1] * (out.dim()-1)))
-    #     out = self.model(out)
-    #     return out
+        ys[:] = 0
+
+        out = self.inlet(zs)
+        out = out + ys.view(-1, *([1] * (out.dim()-1)))
+        out = self.model(out)
+        return out
 
 
 class Discriminator(nn.Module):
@@ -274,12 +276,12 @@ class Discriminator(nn.Module):
     def forward(self, xs, ys=None):
         if ys is None: return self.outlet(self.linear1(self.model(xs)))
 
+        ys[:] = 0
 
-    # def forward(self, xs, ys):
-    #     out = self.model(xs)
-    #     out_y = self.linear2(ys + 1) # why +1 ? (following GitHub code of Ding et al. 2021)
-    #     out = self.outlet(self.linear1(out) + (out * out_y).sum(dim=-1))
-    #     return out
+        out = self.model(xs)
+        out_y = self.linear2(ys.view(-1,1)) # note the GitHub code of Ding et al. 2021 puts an '+1' here
+        out = self.outlet(self.linear1(out) + (out * out_y).sum(dim=-1, keepdim=True))
+        return out
 
     def spec(self, imgs):
         ''' get the spectral representation of the images,
