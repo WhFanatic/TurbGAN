@@ -32,6 +32,8 @@ class MyDataset(Dataset):
             self.__init__(path, raw_paths=None, img_size=img_size)
             return
 
+        self.augflag = 1 # default augmentation: randomly flip
+
         # make sure dataset is functioning correctly
         # and create some class attributes (they have to be created in initiation because this object might not be the one instantiate in dataloader)
         self.__getitem__(0)
@@ -41,7 +43,7 @@ class MyDataset(Dataset):
 
     def __getitem__(self, idx):
         x, y = self.get_sample(idx)
-        x = self.augment(x, 1) # should not shift in Z when periodicity is not kept
+        x = self.augment(x, self.augflag) # should not shift in Z when periodicity is not kept
         x = torch.tensor(x, dtype=torch.float32)
         return x, y
 

@@ -115,7 +115,7 @@ class ResNet(nn.Module):
         self.module = module
         self.bypass = nn.Identity() \
             if in_features == out_features else \
-            nn.Conv2d(in_features, out_features, 1)
+            nn.Conv2d(in_features, out_features, 1, bias=False)
 
     def forward(self, input):
         out = self.module(input)
@@ -126,14 +126,13 @@ class ResNet(nn.Module):
 def conv1x1(in_features, out_features):
     return nn.Conv2d(in_features, out_features, 1)
 
-def conv3x3(in_features, out_features, zprd=False):
-    # implement padding by hand: periodic for spanwise, zero for top & bottom
+def conv3x3(in_features, out_features, periodic=(False, False), **kwargs):
+    # implement padding by hand: periodic for (spanwise, wall-normal)
     # note: (l, r, t, b) for tensor, (l, r, b, t) for flow field
     return nn.Sequential(
-        nn.ReplicationPad2d((1, 1, 0, 0)) if zprd else \
-        nn.ZeroPad2d((1, 1, 0, 0)),
-        nn.ZeroPad2d((0, 0, 1, 1)),
-        nn.Conv2d(in_features, out_features, 3),
+        nn.ReplicationPad2d((1,1,0,0)) if periodic[0] else nn.ZeroPad2d((1,1,0,0)), # spanwise
+        nn.ReplicationPad2d((0,0,1,1)) if periodic[1] else nn.ZeroPad2d((0,0,1,1)), # wall-normal
+        nn.Conv2d(in_features, out_features, 3, **kwargs),
     )
 
 def defReLU():

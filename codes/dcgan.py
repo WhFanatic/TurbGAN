@@ -105,7 +105,7 @@ if __name__ == '__main__':
 
 
     sigma = 1e-20 # (4/3/len(dataset))**.2 * np.std(np.unique(dataset.get_labels()))
-    nu = 1e-20 # (20 * np.diff(dataset.get_labels()).max())**-2 # 20 means at least neighbouring 40 labels can contribute to the conditional distribution
+    nu = 1e20 # (20 * np.diff(dataset.get_labels()).max())**-2 # 20 means at least neighbouring 40 labels can contribute to the conditional distribution
     thres_w = 1e-3
     lab_gap = (-np.log(thres_w)/nu)**.5
 
@@ -144,12 +144,9 @@ if __name__ == '__main__':
             real_imgs = imgs
             real_labs = tensor([dataset[_][1] for _ in ids]) + eps
             fake_labs = real_labs + (torch.rand_like(real_labs) * 2 - 1) * lab_gap
-            
-            wrs = torch.exp(-nu * (real_labs - labs)**2)
-            wfs = torch.exp(-nu * (real_labs - fake_labs)**2)
 
-            wrs /= wrs.mean()
-            wfs /= wfs.mean()
+            wrs = F.softmax(-nu * (real_labs -      labs)**2, dim=0) * len(real_labs)
+            wfs = F.softmax(-nu * (real_labs - fake_labs)**2, dim=0) * len(real_labs)
 
             # Sample noise as gennet input
             zs = torch.randn(bs, opt.latent_dim, device=device).type(tensor)
@@ -243,7 +240,7 @@ if __name__ == '__main__':
                 fidr, fid1, fid0 = fid.calc(relative=True)
                 fp.write('%i\t%.8e\t%.8e\t%.8e\n'%(epoch, fidr, fid1, fid0))
 
-            draw_vel(opt.workpath + 'images/%d.png'%epoch, vel, ys, zs)
+            draw_vel(opt.workpath + 'images/%d.png'%epoch, vel)#, ys, zs)
             draw_log(opt.workpath + 'log.png', opt.workpath + 'log.dat', epoch+1)
             draw_fid(opt.workpath + 'fid.png', opt.workpath + 'fid.dat')
 
