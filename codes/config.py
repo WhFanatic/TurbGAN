@@ -28,7 +28,7 @@ def config_options():
     parser.add_argument("--channels",   type=int, default=3, help="number of image channels")
     
     # training options
-    parser.add_argument("--n_epochs", type=int, default=200, help="number of epochs of training")
+    parser.add_argument("--n_epochs", type=int, default=2000, help="number of epochs of training")
     parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
     parser.add_argument("--resume", type=int, default=-1, help="resume training from last epoch")
     
@@ -48,7 +48,7 @@ def config_options():
     # GAN options
     parser.add_argument("--n_critic", type=int, default=1, help="multiple of D-training iterations w.r.t G-training iterations (to train D better)")
     parser.add_argument("--lambda_gp", type=float, default=100, help="gradient penalty coefficient for WGAN-GP loss")
-    parser.add_argument("--lambda_d1", type=float, default=1000, help="penalty coefficient for statistical constraint")
+    parser.add_argument("--lambda_d1", type=float, default=100, help="penalty coefficient for labelling loss")
     parser.add_argument("--lambda_d2", type=float, default=1000, help="penalty coefficient for statistical constraint")
 
     # -----------------

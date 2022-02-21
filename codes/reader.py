@@ -16,7 +16,7 @@ class MyDataset(Dataset):
         self.cnt = 0 # count of samples (x-cut) altogether
         self.path = path
 
-        self.filenames = sorted([name for name in os.listdir(self.path) if name[:3]+name[-5:] == 'vel.hdf5'])
+        self.filenames = sorted([name for name in os.listdir(self.path) if name[:3]+name[-3:] == 'vel.h5'])
         self.filenumbs = [int(name[3:11]) for name in self.filenames] # number of samples before (including) this file
 
         for num, name in zip(self.filenumbs, self.filenames):
@@ -169,7 +169,7 @@ class MyDataset(Dataset):
         Nz = para.Nz
 
         # only the middle half of TBL simulation is used
-        mask = range(Nx//4, Nx//4 + Nx//2)
+        mask = range(Nx//4, Nx//4 + Nx//2, 4)
 
         # target coordinates normalized by local delta
         new_ly = 2.
@@ -188,10 +188,10 @@ class MyDataset(Dataset):
             v = self.interp(v[:,:,mask], stas.dlt[mask], *(para.zc[1:-1], para.yc), *(zs_new, ys_new))
             w = self.interp(w[:,:,mask], stas.dlt[mask], *(para.zc[1:-1], para.yc), *(zs_new, ys_new))
 
-            self.cnt += Nx//2
+            self.cnt += len(mask)
 
             # all quantities are normalized by local U_inf and delta
-            with h5py.File(workpath + "vel%08i.hdf5"%self.cnt, "w") as f:
+            with h5py.File(workpath + "vel%08i.h5"%self.cnt, "w") as f:
                 f.create_dataset('u', data=u)
                 f.create_dataset('v', data=v)
                 f.create_dataset('w', data=w)
@@ -210,7 +210,7 @@ class MyDataset(Dataset):
                 f.create_dataset('Re_tau',   data=stas.Re_tau[mask])
                 f.create_dataset('Cf',       data=stas.Cf[mask])
 
-                f.attrs['len'] = Nx//2
+                f.attrs['len'] = len(mask)
 
     @staticmethod
     def interp(us, dlts, zs, ys, zs_new, ys_new, periodize=False):

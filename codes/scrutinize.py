@@ -12,8 +12,8 @@ class Scrutinize:
         os.makedirs(workpath, exist_ok=True)
 
     def __call__(self, dl_r, dl_f):
-        real_imgs = self.get_imgs(dl_r, num=2)#10000)
-        fake_imgs = self.get_imgs(dl_f, num=2)#10000)
+        real_imgs = self.get_imgs(dl_r, num=10000)
+        fake_imgs = self.get_imgs(dl_f, num=10000)
 
         self.plot_prof(real_imgs, fake_imgs, self.workpath)
         self.plot_jpdf(real_imgs, fake_imgs, self.workpath)
@@ -269,8 +269,10 @@ if __name__ == '__main__':
     from fid import wrapped_dl_gen
     from models import Generator
 
-    gennet = Generator(128, 64).to('cuda')
-    gennet.load_state_dict(torch.load('../results/models/model_G.pt'))
+    device = 'cpu'
+
+    gennet = Generator(128, 64).to(device)
+    gennet.load_state_dict(torch.load('../results/models/model_G.pt', map_location=device))
 
     dl_r = DataLoader(
         MyDataset('../dataset_64x64/', img_size=64),
