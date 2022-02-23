@@ -166,11 +166,7 @@ def wrapped_dl_gen(gennet, latent_dim, batch_size=1):
             self.g = g # just matain a reference of the generator net, do not change its status
 
         def __getitem__(self, i):
-            with torch.no_grad():
-                latent = torch.randn((1, self.n), device=next(self.g.parameters()).device)
-                lb = torch.rand(1, device=latent.device)
-                img, = self.g(latent, lb)
-            return img, lb
+            return self.g.getone(self.n), 0
 
         def __len__(self):
             return 99999999

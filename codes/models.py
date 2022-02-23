@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.fft import fft, rfft
@@ -151,11 +152,11 @@ class Generator(nn.Module):
             # leaky ReLu with pixelwise normalization, negative slope 0.2
             return nn.Sequential(Lambda(pixel_norm), defReLU())
 
-        def FCBlock(latent_dim, start_size):
+        def FCBlock(latent_dim, start_chan, start_size):
             # inlet block to handle the latent vector input
             return nn.Sequential(
-                nn.Linear(latent_dim, latent_dim * start_size**2),
-                nn.Unflatten(1, (latent_dim, start_size, start_size)),
+                nn.Linear(latent_dim, start_chan * start_size**2),
+                nn.Unflatten(1, (start_chan, start_size, start_size)),
                 )
 
         def InBlock(in_features, out_features):
@@ -169,7 +170,7 @@ class Generator(nn.Module):
             # repeated block, each block enlarges the image by 2
             module = nn.Sequential(
                 pnLReLU(),
-                nn.Upsample(scale_factor=2),
+                nn.Upsample(scale_factor=2, mode='bicubic', align_corners=False),
                 conv3x3(in_features, out_features),
                 pnLReLU(),
                 conv3x3(out_features,out_features),
@@ -182,36 +183,63 @@ class Generator(nn.Module):
                 conv1x1(in_features, 3)
                 )
 
-        self.inlet = \
-            FCBlock(latent_dim,    img_size//2**5)
+        nblocks    = int(np.log2(img_size//4)) # at least 4x4 for start size
+        start_size = img_size//2**nblocks
+        start_chan = 4 * latent_dim
 
-        self.model = nn.Sequential(
-            InBlock(latent_dim,    latent_dim),
-            MyBlock(latent_dim,    latent_dim),    # channels 256 -> 256
-            MyBlock(latent_dim,    latent_dim),    # channels 256 -> 256
-            MyBlock(latent_dim,    latent_dim),    # channels 256 -> 256
-            MyBlock(latent_dim,    latent_dim//2), # channels 256 -> 128
-            MyBlock(latent_dim//2, latent_dim//4), # channels 128 -> 64
-            ExBlock(latent_dim//4),                # return the generated images
+        # ## version 3, structures adapted from Kim & Lee (JCP 2020) and PG-GAN of Karras et al. (ICLR, 2018)
+        # self.inlet = \
+        #     FCBlock(latent_dim, start_chan, start_size) # channels 128->512, size 1x1->4x4
+
+        # self.model = nn.Sequential(
+        #     InBlock(start_chan, start_chan), *[  # channels 512->512, size 4x4->4x4
+        #     MyBlock(start_chan//2**max(n-1,0),   # channels 512->64,  size 4x4->64x64
+        #             start_chan//2**n) for n in range(nblocks)],
+        #     ExBlock(start_chan//2**(nblocks-1)), # channels 64->3,    size 64x64->64x64, the generated images
+        #     )
+
+        ## version 4, structure as in Ding et al. (2021) https://github.com/UBCDingXin/improved_CcGAN
+        start_chan = 1024
+        assert nblocks >= 4, 'figure size too small'
+
+        self.inlet = \
+            FCBlock(latent_dim, start_chan, start_size) # channels 128->1024, size 1x1->4x4
+        self.model = nn.Sequential(*[
+            MyBlock(start_chan//2**max(3-n,0),          # channels 1024->64, size 4x4->64x64
+                    start_chan//2**max(4-n,0)) for n in range(nblocks)[::-1]],
+            InBlock(start_chan//2**4, 3),               # channels 64->3, size 64x64
             )
 
         # initialize and apply equalized learning rate
         setModule(self.inlet, eqlr=True)
         setModule(self.model, eqlr=True)
 
-    def forward(self, zs, ys=None):
-        if ys is None: return self.model(self.inlet(zs))
+    def forward(self, zs, ys=None, supervised=None):
+        if supervised is None:
+            supervised = (ys is not None)
 
-        ys[:] = 0
+        # determining what to return by the argument 'supervised' in stead of by the existence of argument 'ys'
+        # allows more formats of supervision with different outputs
+        if not supervised:
+            return self.model(self.inlet(zs))
 
-        out = self.inlet(zs)
-        out = out + ys.view(-1, *([1] * (out.dim()-1)))
-        out = self.model(out)
-        return out
+        # conditionalize as InfoGAN (Chen et al. 2016)
+        return self.model(self.inlet(torch.cat([ys.view(1,-1), zs.T[1:]]).T))
+
+        # # conditionalize as CcGAN (Ding et al. 2021)
+        # out = self.inlet(zs)
+        # out = out + ys.view(-1, *([1] * (out.dim()-1)))
+        # out = self.model(out)
+        # return out
+
+    def getone(self, latent_dim):
+        # generate one image without label, latent vector automatically generated
+        with torch.no_grad():
+            return self(torch.rand(latent_dim).view(1,-1).type(next(self.parameters()).type()))[0]
 
 
 class Discriminator(nn.Module):
-    def __init__(self, img_size, final_dim):
+    def __init__(self, img_size, latent_dim):
         super().__init__()
 
         def batch_std(x):
@@ -222,24 +250,24 @@ class Discriminator(nn.Module):
         def InBlock(out_features):
             return conv1x1(3, out_features)
 
-        def MyBlock(in_features, out_features):
+        def MyBlock(in_features, out_features, in_act=True, pool=2):
             # repeated block, each block shrinks the image by 1/2
             module = nn.Sequential(
-                defReLU(),
+                defReLU() if in_act else nn.Identity(),
                 conv3x3(in_features, in_features),
                 defReLU(),
                 conv3x3(in_features,out_features),
-                nn.AvgPool2d(2),
+                nn.AvgPool2d(pool) if pool>1 else nn.Identity(),
                 )
             return ResNet(module)
 
-        def ExBlock(in_features, final_size):
+        def ExBlock(final_chan, final_size):
             return nn.Sequential(
                 defReLU(),
                 # Lambda(batch_std),
-                conv3x3(in_features, in_features),
+                conv3x3(final_chan, final_chan),
                 defReLU(),
-                nn.Conv2d(in_features, in_features, final_size), # Equal to nn.Linear(in_features * final_size**2, in_features),
+                nn.Conv2d(final_chan, final_chan, final_size),
                 defReLU(),
                 nn.Flatten(),
                 )
@@ -250,37 +278,80 @@ class Discriminator(nn.Module):
         def FCBlock2(out_features):
             return nn.Linear(1, out_features, bias=False)
 
-        def FinalAct():
-            return nn.Identity() # nn.Sigmoid() # not needed in WGAN, where the discrimintator becomes a critic
+        def FinalAct1():
+            return nn.Sequential(
+                nn.Identity(),
+                # nn.Sigmoid(), # not needed in WGAN, where the discrimintator becomes a critic
+                )
+        def FinalAct2():
+            return nn.Sequential(
+                nn.Identity(),
+                # nn.Sigmoid(), # output label that have been normalized to 0~1
+                )
+
+        nblocks    = int(np.log2(img_size//4)) # at least 4x4 for start size
+        final_size = img_size//2**nblocks
+        final_chan = 4 * latent_dim
+
+        # ## version 3, structures adapted from Kim & Lee (JCP 2020) and PG-GAN of Karras et al. (ICLR, 2018)
+        # self.model = nn.Sequential(
+        #     InBlock(final_chan//2**(nblocks-1)), *[ # channels 3->64, size 64x64->64x64
+        #     MyBlock(final_chan//2**n,               # channels 64->512, size 64x64->4x4
+        #             final_chan//2**max(n-1,0)) for n in range(nblocks)[::-1]],
+        #     ExBlock(final_chan, final_size), # channels 512->128, size 4x4->1x1
+        #     )
+        # self.linear1 = FCBlock1(final_chan)
+        # self.linear2 = FCBlock1(final_chan) # FCBlock1 for ACGAN (Odena et al. 2017), FCBlock2 for Projection D (Miyato & Koyama 2018)
+        # self.outlet1 = FinalAct1()
+        # self.outlet2 = FinalAct2()
+        # self.outlet = self.outlet1
+        # self.linear = self.linear1
+
+        ## version 4, structure as in Ding et al. (2021) https://github.com/UBCDingXin/improved_CcGAN
+        final_chan = 1024
+        assert nblocks >= 4, 'figure size too small'
 
         self.model = nn.Sequential(
-            InBlock(final_dim//4),
-            MyBlock(final_dim//4,final_dim//2),
-            MyBlock(final_dim//2,final_dim),
-            MyBlock(final_dim,   final_dim),
-            MyBlock(final_dim,   final_dim),
-            MyBlock(final_dim,   final_dim),
-            ExBlock(final_dim,   img_size//2**5),
+            MyBlock(3, final_chan//2**4, in_act=False), *[ # channels 3->64, size 64x64->32x32
+            MyBlock(final_chan//2**max(4-n,0),             # channels 64->1024, size 32x32->4x4
+                    final_chan//2**max(3-n,0), pool=2*(n+1<nblocks)) for n in range(nblocks)],
+            defReLU(),
+            nn.AvgPool2d(final_size), Lambda(lambda a: final_size**2*a), # channels 1024, size 4x4->1x1
+            nn.Flatten(),
             )
-
-        self.linear1 = FCBlock1(final_dim)
-        self.linear2 = FCBlock2(final_dim)
-        self.outlet  = FinalAct()
+        self.linear1 = FCBlock1(final_chan)
+        self.linear2 = FCBlock1(final_chan) # FCBlock1 for ACGAN (Odena et al. 2017), FCBlock2 for Projection D (Miyato & Koyama 2018)
+        self.outlet1 = FinalAct1()
+        self.outlet2 = FinalAct2()
+        self.outlet = self.outlet1
+        self.linear = self.linear1
 
         setModule(self.model, eqlr=True)
         setModule(self.linear1, eqlr=True)
         setModule(self.linear2, eqlr=True)
-        setModule(self.outlet, eqlr=True)
+        setModule(self.outlet1, eqlr=True)
+        setModule(self.outlet2, eqlr=True)
 
-    def forward(self, xs, ys=None):
-        if ys is None: return self.outlet(self.linear1(self.model(xs)))
+    def forward(self, xs, ys=None, supervised=None):
+        if supervised is None:
+            supervised = (ys is not None)
 
-        ys[:] = 0
+        # determining what to return by the argument 'supervised' in stead of by the existence of argument 'ys'
+        # allows more formats of supervision with different outputs
+        if not supervised:
+            return self.outlet(self.linear(self.model(xs)))
 
+        # conditionalize as ACGAN (Odena et al. 2017)
         out = self.model(xs)
-        out_y = self.linear2(ys.view(-1,1)) # note the GitHub code of Ding et al. 2021 puts an '+1' here
-        out = self.outlet(self.linear1(out) + (out * out_y).sum(dim=-1, keepdim=True))
-        return out
+        dis = self.outlet1(self.linear1(out))
+        aux = self.outlet2(self.linear2(out))
+        return dis, aux
+
+        # # conditionalize as Projection D (Miyato & Koyama 2018; Ding et al. 2021)
+        # out = self.model(xs)
+        # out_y = self.linear2(ys.view(-1,1)) # note the GitHub code of Ding et al. 2021 puts an '+1' here
+        # out = self.outlet(self.linear1(out) + (out * out_y).sum(dim=-1, keepdim=True))
+        # return out
 
     def spec(self, imgs):
         ''' get the spectral representation of the images,

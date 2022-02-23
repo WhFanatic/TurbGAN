@@ -3,29 +3,82 @@ import torch
 import torch.nn as nn
 
 
-def loss_D_WGAN(disnet, real_imgs, fake_imgs, lamb=0):
-    ''' compute the WGAN (Arjovsky et al. 2017) loss for D '''
+def gradient_penalty(disnet, real_imgs, fake_imgs):
+    # compute GP (gradient penalty) for WGAN-GP (Gulrajani et al. 2017)
+    alpha = torch.rand(len(real_imgs)).type(real_imgs.type()).view(-1,1,1,1)
 
-    # D loss for WGAN
+    inter_imgs = alpha * real_imgs + (1-alpha) * fake_imgs
+    inter_imgs.requires_grad = True
+
+    grads, = torch.autograd.grad(disnet(inter_imgs).sum(), inter_imgs, create_graph=True) # takes much memory
+    loss_gp = ((grads.norm(2, dim=[*range(1, grads.dim())]) - 1)**2).mean()
+
+    return loss_gp
+
+
+def loss_D_WGAN(disnet, real_imgs, fake_imgs, lamb=0):
+    ''' compute the WGAN-GP loss proposed by Gulrajani et al. (2017) '''
+
+    # D loss for WGAN (Arjovsky et al. 2017)
     loss_WGAN = disnet(fake_imgs).mean() - disnet(real_imgs).mean()
 
     if not lamb: return loss_WGAN
 
-    # GP: gradient penalty (Gulrajani et al. 2017)
-    alpha = torch.rand(len(real_imgs), device=real_imgs.device).view(-1,1,1,1)
-    inter_imgs = alpha * real_imgs + (1-alpha) * fake_imgs
-    inter_imgs.requires_grad=True
+    loss_GP = gradient_penalty(disnet, real_imgs, fake_imgs)
 
-    grads, = torch.autograd.grad(disnet(inter_imgs).sum(), inter_imgs, create_graph=True) # takes much memory
-    loss_GP = ((grads.norm(2, dim=[*range(1, grads.dim())]) - 1)**2).mean()
-
-    # get loss for D
-    loss_D = loss_WGAN + lamb * loss_GP
-
-    return loss_D
+    return loss_WGAN + lamb * loss_GP, \
+           loss_WGAN, \
+           loss_GP
 
 def loss_G_WGAN(disnet, fake_imgs):
-    return - disnet(fake_imgs).mean()
+    return - disnet(fake_imgs).mean(),
+
+
+def loss_D_WACGAN(disnet, real_imgs,      fake_imgs,
+                          real_labs=None, fake_labs=None,
+                          wrs=1,          wfs=1,    lamb_aux=0, lamb_gp=0):
+    # output format depend on whether label arguments are None
+    if real_labs is None and fake_labs is None:
+        return loss_D_WGAN(disnet, real_imgs, fake_imgs, lamb_gp)
+
+    # D loss for WGAN
+    fake_diss            = disnet(fake_imgs)
+    real_diss, real_auxs = disnet(real_imgs, real_labs, supervised=True)
+
+    loss_adv = torch.mean(torch.tensor(wfs).view(-1) * fake_diss.view(-1)) \
+             - torch.mean(torch.tensor(wrs).view(-1) * real_diss.view(-1))
+    loss_aux = 0
+    loss_gp  = 0
+
+    if lamb_aux: # auxiliary loss
+        loss_aux = torch.mean((real_labs - real_auxs)**2)
+
+    if lamb_gp: # GP loss (label by AC is not involved in GP, because loss_aux is only a regularizer and has no part in the competition of D and G)
+        loss_gp = gradient_penalty(disnet, real_imgs, fake_imgs)
+
+    return loss_adv + lamb_aux * loss_aux + lamb_gp * loss_gp, \
+           loss_adv, \
+           loss_aux, \
+           loss_gp
+
+def loss_G_WACGAN(disnet, fake_imgs, fake_labs=None, lamb_aux=0):
+    # output format depend on whether fake_labs is None
+    if fake_labs is None:
+        return loss_G_WGAN(disnet, fake_imgs)
+
+    if lamb_aux:
+        fake_diss, fake_auxs = disnet(fake_imgs, fake_labs)
+    else:
+        fake_diss, fake_auxs = disnet(fake_imgs),fake_labs
+
+    loss_adv = torch.mean(-fake_diss)
+    loss_aux = torch.mean((fake_labs - fake_auxs)**2)
+
+    return loss_adv + lamb_aux * loss_aux, \
+           loss_adv, \
+           loss_aux
+
+
 
 
 def loss_D_CcGAN(disnet, real_imgs, real_labs, wrs, fake_imgs, fake_labs, wfs):
@@ -34,36 +87,6 @@ def loss_D_CcGAN(disnet, real_imgs, real_labs, wrs, fake_imgs, fake_labs, wfs):
 
 def loss_G_CcGAN(disnet, fake_imgs, fake_labs):
     return - torch.log(disnet(fake_imgs, fake_labs) + 1e-20).mean()
-
-
-def loss_D_CcGAN_WGAN(disnet, real_imgs, real_labs, wrs, fake_imgs, fake_labs, wfs, lamb=0):
-    ## compute the WGAN-GP loss proposed by Gulrajani et al. 2017
-
-    # D loss for WGAN
-    loss_WGAN = torch.mean(wfs.view(-1) * disnet(fake_imgs, fake_labs).view(-1)) \
-              - torch.mean(wrs.view(-1) * disnet(real_imgs, real_labs).view(-1))
-
-    if not lamb: return loss_WGAN
-
-    # GP: gradient penalty
-    alpha = torch.rand(len(real_imgs)).type(real_imgs.type()).view(-1,1,1,1)
-
-    inter_imgs = alpha * real_imgs + (1-alpha) * fake_imgs
-    inter_labs = torch.ones_like(real_labs)
-
-    inter_imgs.requires_grad = True
-    inter_labs.requires_grad = False
-
-    grads, = torch.autograd.grad(disnet(inter_imgs, inter_labs).sum(), inter_imgs, create_graph=True) # takes much memory
-    loss_GP = ((grads.norm(2, dim=[*range(1, grads.dim())]) - 1)**2).mean()
-
-    # get loss for D
-    loss_D = loss_WGAN + lamb * loss_GP
-
-    return loss_D
-
-def loss_G_CcGAN_WGAN(disnet, fake_imgs, fake_labs):
-    return - disnet(fake_imgs, fake_labs).mean()
 
 
 def loss_Hinge(disnet, real_imgs, fake_imgs):
