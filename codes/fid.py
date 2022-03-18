@@ -171,7 +171,7 @@ def wrapped_dl_gen(gennet, latent_dim, batch_size=1):
         def __len__(self):
             return 99999999
 
-    dl = DataLoader(DataSetGen(gennet, latent_dim), batch_size=batch_size, shuffle=True)
+    dl = DataLoader(DataSetGen(gennet, latent_dim), batch_size=batch_size)
 
     return dl
 

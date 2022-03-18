@@ -12,9 +12,10 @@ from rawdata import basic, statis
 
 
 class MyDataset(Dataset):
-    def __init__(self, path, raw_paths=None, img_size=192):
+    def __init__(self, path, raw_paths=None, img_size=192, device='cpu'):
         self.cnt = 0 # count of samples (x-cut) altogether
         self.path = path
+        self.device = device
 
         self.filenames = sorted([name for name in os.listdir(self.path) if name[:3]+name[-3:] == 'vel.h5'])
         self.filenumbs = [int(name[3:11]) for name in self.filenames] # number of samples before (including) this file
@@ -42,10 +43,7 @@ class MyDataset(Dataset):
         return self.cnt
 
     def __getitem__(self, idx):
-        x, y = self.get_sample(idx)
-        x = self.augment(x, self.augflag) # should not shift in Z when periodicity is not kept
-        x = torch.tensor(x, dtype=torch.float32)
-        return x, y
+        return self.get_sample(idx)
 
     def indexing(self, idx):
         ''' transform dataset index to file-relevant indices '''
@@ -70,7 +68,14 @@ class MyDataset(Dataset):
         with h5py.File(self.path + self.filenames[n], "r") as f:
             x = np.array([f[c][:,:,i] for c in 'uvw'])
             y = f['Re_theta'][i]
-        return self.normalize(x, y)
+
+        x, y = self.normalize(x, y)
+        x = self.augment(x, self.augflag) # should not shift in Z when periodicity is not kept
+
+        x = torch.tensor(x, dtype=torch.float32).to(self.device)
+        y = torch.tensor(y, dtype=torch.float32).to(self.device)
+
+        return x, y
 
     def get_label(self, idx):
         ''' get one normalized label by its index in sorted labels '''
@@ -169,7 +174,7 @@ class MyDataset(Dataset):
         Nz = para.Nz
 
         # only the middle half of TBL simulation is used
-        mask = range(Nx//4, Nx//4 + Nx//2, 4)
+        mask = range(Nx//4, Nx//4 + Nx//2, 2)
 
         # target coordinates normalized by local delta
         new_ly = 2.

@@ -235,7 +235,7 @@ class Generator(nn.Module):
     def getone(self, latent_dim):
         # generate one image without label, latent vector automatically generated
         with torch.no_grad():
-            return self(torch.rand(latent_dim).view(1,-1).type(next(self.parameters()).type()))[0]
+            return self(torch.randn(latent_dim).view(1,-1).to(next(self.parameters()).device))[0]
 
 
 class Discriminator(nn.Module):
@@ -319,18 +319,18 @@ class Discriminator(nn.Module):
             nn.AvgPool2d(final_size), Lambda(lambda a: final_size**2*a), # channels 1024, size 4x4->1x1
             nn.Flatten(),
             )
-        self.linear1 = FCBlock1(final_chan)
-        self.linear2 = FCBlock1(final_chan) # FCBlock1 for ACGAN (Odena et al. 2017), FCBlock2 for Projection D (Miyato & Koyama 2018)
-        self.outlet1 = FinalAct1()
-        self.outlet2 = FinalAct2()
-        self.outlet = self.outlet1
-        self.linear = self.linear1
+        self.linear = FCBlock1(final_chan)
+        self.outlet = FinalAct1()
+        # self.outlet1 = self.outlet
+        # self.linear1 = self.linear
+        # self.linear2 = FCBlock1(final_chan) # FCBlock1 for ACGAN (Odena et al. 2017), FCBlock2 for Projection D (Miyato & Koyama 2018)
+        # self.outlet2 = FinalAct2()
 
         setModule(self.model, eqlr=True)
-        setModule(self.linear1, eqlr=True)
-        setModule(self.linear2, eqlr=True)
-        setModule(self.outlet1, eqlr=True)
-        setModule(self.outlet2, eqlr=True)
+        setModule(self.linear, eqlr=True)
+        setModule(self.outlet, eqlr=True)
+        # setModule(self.linear2, eqlr=True)
+        # setModule(self.outlet2, eqlr=True)
 
     def forward(self, xs, ys=None, supervised=None):
         if supervised is None:

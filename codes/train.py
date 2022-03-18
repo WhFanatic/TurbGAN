@@ -65,21 +65,22 @@ class Trainer:
         self.config()
 
     def config(self):
-        # use CUDA whenever available
-        cuda_on = torch.cuda.is_available()
-
-        self.tensor = (torch.FloatTensor, torch.cuda.FloatTensor)[cuda_on]
-        self.gennet.to(('cpu','cuda')[cuda_on])
-        self.disnet.to(('cpu','cuda')[cuda_on])
-
         # Optimizers
-        self.optimizer_G = torch.optim.Adam(self.gennet.parameters(), lr=self.opt.lr, betas=(self.opt.b1, self.opt.b2))
-        self.optimizer_D = torch.optim.Adam(self.disnet.parameters(), lr=self.opt.lr, betas=(self.opt.b1, self.opt.b2))
+        self.optimizer_G = torch.optim.Adam(self.gennet.parameters(), lr=self.opt.lr, betas=(self.opt.beta1, self.opt.beta2))
+        self.optimizer_D = torch.optim.Adam(self.disnet.parameters(), lr=self.opt.lr, betas=(self.opt.beta1, self.opt.beta2))
+
+        # load in resume files
+        epoch = self.opt.resume
+        if epoch < 0:
+            print('\nTrain from scratch.\n')
+        else:
+            load_for_resume(self.opt.workpath+'models/', epoch, self.gennet, self.disnet, self.optimizer_G, self.optimizer_D)
+
 
         # Judge for measuring how well the generator is learning
         self.fid = FID(
             self.datldr,
-            wrapped_dl_gen(self.gennet, self.opt.latent_dim, self.opt.batch_size),
+            wrapped_dl_gen(self.gennet.module, self.opt.latent_dim, self.opt.batch_size),
             self.opt.workpath + 'models/inception_v3.pt',
         )
         # Decay of learning rate
@@ -93,21 +94,11 @@ class Trainer:
         # stochastic perturbation on regression labels
         self.labrdm = LabelRandomizer()
 
-    def train(self, train_func):
+    def train(self, train_epoch):
 
         epoch = self.opt.resume
 
-        if epoch < 0:
-            print('\nTrain from scratch.\n')
-        else:
-            load_for_resume(self.opt.workpath + 'models/', epoch, self.gennet, self.disnet, self.optimizer_G, self.optimizer_D)
-
-            if self.opt.lr != 1:
-                print('\nMannually adjust lr by %f for resuming training.\n'%self.opt.lr)
-                for g in optimizer_G.param_groups: g['lr'] *= self.opt.lr
-                for g in optimizer_D.param_groups: g['lr'] *= self.opt.lr
-
-        while epoch < self.opt.n_epochs:
+        while epoch < self.opt.epochs:
             epoch += 1
 
             # ----------
@@ -116,8 +107,9 @@ class Trainer:
 
             self.gennet.train()
             self.disnet.train()
+            self.datldr.batch_sampler.sampler.set_epoch(epoch)
 
-            train_func(epoch, self.gennet, self.disnet, self.datldr)
+            train_epoch(epoch, self.gennet, self.disnet, self.datldr)
 
             # save the model every epoch for resuming training
             save_for_resume(self.opt.workpath+'models/', epoch, self.gennet, self.disnet, self.optimizer_G, self.optimizer_D)
@@ -131,7 +123,7 @@ class Trainer:
             # Visualize
             # ---------
 
-            if epoch % self.opt.draw_every == 0:
+            if epoch % self.opt.check_every == 0 == torch.distributed.get_rank():
                 self.gennet.eval()
 
                 with open(self.opt.workpath + 'fid.dat', 'aw'[epoch==0]) as fp:
@@ -139,7 +131,7 @@ class Trainer:
                     fp.write('%i\t%.8e\t%.8e\t%.8e\n'%(epoch, fidr, fid1, fid0))
 
                 vel = np.concatenate((
-                    self.gennet.getone(self.opt.latent_dim).detach().cpu().numpy(),
+                    self.gennet.module.getone(self.opt.latent_dim).detach().cpu().numpy(),
                     next(iter(self.datldr))[0][0].detach().cpu().numpy(),
                     ))
                 draw_vel(self.opt.workpath + 'images/%d.png'%epoch, vel)
@@ -147,7 +139,7 @@ class Trainer:
                 draw_fid(self.opt.workpath + 'fid.png', self.opt.workpath + 'fid.dat')
 
 
-    def train_once(self, epoch, gennet, disnet, dataloader):
+    def train_unsuper(self, epoch, gennet, disnet, dataloader):
         # train gennet and disnet for one epoch using the dataset provided by dataloader
         for itera, (imgs, labs) in enumerate(dataloader):
 
@@ -155,11 +147,10 @@ class Trainer:
 
             bs = len(imgs) # size of the current batch, may be different for the last batch
 
-            # put loaded batch into CUDA
-            real_imgs = imgs.type(self.tensor)
+            real_imgs = imgs
 
             # Sample noise as gennet input
-            zs = torch.randn(bs, self.opt.latent_dim).type(self.tensor)
+            zs = torch.randn(bs, self.opt.latent_dim).type(imgs.type()).to(imgs.device)
 
             # ---------------------
             #  Train Discriminator
@@ -204,9 +195,11 @@ class Trainer:
             #  Monitor
             # ---------
 
+            if torch.distributed.get_rank(): continue
+
             print("[Epoch %d/%d] [Batch %d/%d] [D loss: %.4f] [G loss: %.4f]"%(
                 epoch,
-                self.opt.n_epochs,
+                self.opt.epochs,
                 itera,
                 len(dataloader),
                 loss_D.item(),
@@ -227,7 +220,7 @@ class Trainer:
 
             # check_vars(self.opt.workpath, real_imgs, fake_imgs)
 
-    def train_once_supervised(self, gennet, disnet, dataloader):
+    def train_super(self, epoch, gennet, disnet, dataloader):
 
         for itera, (imgs, labs) in enumerate(dataloader):
 
@@ -235,12 +228,11 @@ class Trainer:
 
             bs = len(imgs) # size of the current batch, may be different for the last batch
 
-            # put loaded batch into CUDA
-            real_imgs = imgs.type(self.tensor)
-            real_labs = labs.type(self.tensor)
+            real_imgs = imgs
+            real_labs = labs
 
             # Sample noise as gennet input
-            zs = torch.randn(bs, self.opt.latent_dim).type(self.tensor)
+            zs = torch.randn(bs, self.opt.latent_dim).type(imgs.type()).to(imgs.device)
 
             # ---------------------
             #  Train Discriminator
@@ -287,9 +279,11 @@ class Trainer:
             #  Monitor
             # ---------
 
+            if torch.distributed.get_rank(): continue
+
             print("[Epoch %d/%d] [Batch %d/%d] [D loss: %.4f] [G loss: %.4f]" % (
                 epoch,
-                self.opt.n_epochs,
+                self.opt.epochs,
                 itera,
                 len(dataloader),
                 loss_D.item(),

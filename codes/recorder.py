@@ -3,6 +3,8 @@ import torch
 
 
 def save_for_resume(path, epoch, gennet, disnet, optimizer_G, optimizer_D):
+    if torch.distributed.get_rank(): return
+
     def swap_dg(m):
         for p in m.parameters():
             if p.grad is not None:
@@ -31,7 +33,10 @@ def save_for_resume(path, epoch, gennet, disnet, optimizer_G, optimizer_D):
     print('Resume file saved for epoch %i.'%epoch)
 
 def load_for_resume(path, epoch, gennet, disnet, optimizer_G, optimizer_D):
-    for_resume = torch.load(path + 'for_resume_ep%03i.pt'%epoch, map_location='cpu') # load to cpu in case GPU is full
+    torch.distributed.barrier()
+
+    for_resume = torch.load(path + 'for_resume_ep%03i.pt'%epoch,
+        map_location={'cuda:0': 'cuda:%i'%torch.distributed.get_rank()})
 
     assert epoch == for_resume['epoch'], "\nResume file error !\n"
 
@@ -40,9 +45,11 @@ def load_for_resume(path, epoch, gennet, disnet, optimizer_G, optimizer_D):
     optimizer_G.load_state_dict(for_resume['G_optimizer_state_dict'])
     optimizer_D.load_state_dict(for_resume['D_optimizer_state_dict'])
 
-    print('\nResume file loaded from epoch %i.\n'%epoch)
+    print('Resume file loaded from epoch %i.\n'%epoch)
 
 def save_current(path, gennet, disnet):
+    if torch.distributed.get_rank(): return
+
     torch.save(gennet.state_dict(), path + 'model_G.pt')
     torch.save(disnet.state_dict(), path + 'model_D.pt')
 

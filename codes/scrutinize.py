@@ -272,7 +272,9 @@ if __name__ == '__main__':
     device = 'cpu'
 
     gennet = Generator(128, 64).to(device)
-    gennet.load_state_dict(torch.load('../results/models/model_G.pt', map_location=device))
+
+    m = torch.load('../results/models/model_G.pt', map_location=device)
+    gennet.load_state_dict({'.'.join(k.split('.')[0:]): m[k] for k in m}) # some times the keywords need to be truncated
 
     dl_r = DataLoader(
         MyDataset('../dataset_64x64/', img_size=64),
