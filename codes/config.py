@@ -43,6 +43,7 @@ def config_options():
     # optimizer options
     parser.add_argument("--batch_size", type=int,   default=16,      help="size of the mini-batch on each GPU")
     parser.add_argument("--lr",         type=float, default=1e-3,    help="adam: learning rate")
+    parser.add_argument("--lr_decay",   type=str,   default='const', help="scheduler for learning rate decay")
     parser.add_argument("--beta1", type=float, default=0.9,   help="adam: exp decay rate for the first moment estimation")
     parser.add_argument("--beta2", type=float, default=0.999, help="adam: exp decay rate for the second moment estimation")
     

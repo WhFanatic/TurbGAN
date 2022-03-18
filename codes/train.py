@@ -76,6 +76,17 @@ class Trainer:
         else:
             load_for_resume(self.opt.workpath+'models/', epoch, self.gennet, self.disnet, self.optimizer_G, self.optimizer_D)
 
+        # Decay of learning rate
+        if   'const'     in self.opt.lr_decay.split('_'): sched = lambda ep: 1
+        elif 'exp'       in self.opt.lr_decay.split('_'): sched = lambda ep: .9**(ep//10) # equivalent to StepLR
+        elif 'hyper'     in self.opt.lr_decay.split('_'): sched = lambda ep: (1+(ep//10))**-1
+        elif 'hypersqrt' in self.opt.lr_decay.split('_'): sched = lambda ep: (1+ep)**-.5
+        if   'step'      in self.opt.lr_decay.split('_'):
+            sched1 = sched
+            sched = lambda ep: 2**int(np.log2(sched1(ep)))
+
+        self.scheduler_G = torch.optim.lr_scheduler.LambdaLR(self.optimizer_G, sched, last_epoch=self.opt.resume, verbose=True)
+        self.scheduler_D = torch.optim.lr_scheduler.LambdaLR(self.optimizer_D, sched, last_epoch=self.opt.resume, verbose=True)
 
         # Judge for measuring how well the generator is learning
         self.fid = FID(
@@ -83,13 +94,6 @@ class Trainer:
             wrapped_dl_gen(self.gennet.module, self.opt.latent_dim, self.opt.batch_size),
             self.opt.workpath + 'models/inception_v3.pt',
         )
-        # Decay of learning rate
-        sched = lambda ep: 2**-int(np.log2(1+ep//10))
-        # sched = lambda ep: 1/(1+(ep//10))
-        # sched = lambda ep: .9**-(ep//(10 * int(self.opt.n_critic**.5+.5))) # equivalent to StepLR
-
-        self.scheduler_G = torch.optim.lr_scheduler.LambdaLR(self.optimizer_G, sched, last_epoch=self.opt.resume, verbose=True)
-        self.scheduler_D = torch.optim.lr_scheduler.LambdaLR(self.optimizer_D, sched, last_epoch=self.opt.resume, verbose=True)
 
         # stochastic perturbation on regression labels
         self.labrdm = LabelRandomizer()

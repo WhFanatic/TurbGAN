@@ -11,6 +11,24 @@ from reader import MyDataset
 from train  import Trainer
 
 
+def wrap_dataset(dataset, sampler=None):
+    # wrap a sampler into dataset so that it can be distributed
+    class SamplerWrappedDataset(torch.utils.data.Dataset):
+        # wrap a sampler with a dataset
+        def __init__(self, dataset, sampler):
+            self.dataset = dataset
+            self.sampler = sampler
+            self.it = iter(self.sampler)
+
+        def __len__(self):
+            return len(self.sampler)
+
+        def __getitem__(self, _):
+            try: return self.dataset[next(self.it)]
+            except StopIteration: self.it = iter(self.sampler)
+            return self.dataset[next(self.it)]
+
+    return dataset if sampler is None else SamplerWrappedDataset(dataset, sampler)
 
 
 def setup(rank, world_size):
@@ -49,7 +67,10 @@ def runner(rank, opt):
         device=dev,
         )
     dataloader = DataLoader(
-        dataset,
+        wrap_dataset(
+            dataset,
+            sampler=WeightedRandomSampler(dataset.label_balancer(), num_samples=opt.batch_size)
+            ),
         batch_sampler=BatchSampler(
             sampler=torch.utils.data.distributed.DistributedSampler(dataset),
             batch_size=opt.batch_size, # batch size on each GPU, gradients are averaged among GPUs before backward prop

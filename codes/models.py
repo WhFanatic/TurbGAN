@@ -142,7 +142,7 @@ def defReLU():
 
 
 class Generator(nn.Module):
-    def __init__(self, latent_dim, img_size):
+    def __init__(self, latent_dim, img_size, img_chan=3):
         super().__init__()
 
         def pixel_norm(x):
@@ -180,7 +180,7 @@ class Generator(nn.Module):
         def ExBlock(in_features):
             return nn.Sequential(
                 pnLReLU(),
-                conv1x1(in_features, 3)
+                conv1x1(in_features, img_chan)
                 )
 
         nblocks    = int(np.log2(img_size//4)) # at least 4x4 for start size
@@ -207,7 +207,7 @@ class Generator(nn.Module):
         self.model = nn.Sequential(*[
             MyBlock(start_chan//2**max(3-n,0),          # channels 1024->64, size 4x4->64x64
                     start_chan//2**max(4-n,0)) for n in range(nblocks)[::-1]],
-            InBlock(start_chan//2**4, 3),               # channels 64->3, size 64x64
+            InBlock(start_chan//2**4, img_chan),        # channels 64->3, size 64x64
             )
 
         # initialize and apply equalized learning rate
@@ -239,7 +239,7 @@ class Generator(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, img_size, latent_dim):
+    def __init__(self, img_size, latent_dim, img_chan=3):
         super().__init__()
 
         def batch_std(x):
@@ -248,15 +248,19 @@ class Discriminator(nn.Module):
             return torch.cat((x, std_map), dim=1)
 
         def InBlock(out_features):
-            return conv1x1(3, out_features)
+            return conv1x1(img_chan, out_features)
 
-        def MyBlock(in_features, out_features, in_act=True, pool=2):
+        def MyBlock(in_features, out_features, order='iiio', in_act=True, pool=2):
             # repeated block, each block shrinks the image by 1/2
+            features = {
+                'i': in_features,
+                'o': out_features,
+                }
             module = nn.Sequential(
                 defReLU() if in_act else nn.Identity(),
-                conv3x3(in_features, in_features),
+                conv3x3(features[order[0]], features[order[1]]),
                 defReLU(),
-                conv3x3(in_features,out_features),
+                conv3x3(features[order[2]], features[order[3]]),
                 nn.AvgPool2d(pool) if pool>1 else nn.Identity(),
                 )
             return ResNet(module)
@@ -312,9 +316,10 @@ class Discriminator(nn.Module):
         assert nblocks >= 4, 'figure size too small'
 
         self.model = nn.Sequential(
-            MyBlock(3, final_chan//2**4, in_act=False), *[ # channels 3->64, size 64x64->32x32
-            MyBlock(final_chan//2**max(4-n,0),             # channels 64->1024, size 32x32->4x4
-                    final_chan//2**max(3-n,0), pool=2*(n+1<nblocks)) for n in range(nblocks)],
+            MyBlock(img_chan,                                            # channels 3->64, size 64x64->32x32
+                    final_chan//2**4,          order='iooo', in_act=False), *[
+            MyBlock(final_chan//2**max(4-n,0),                           # channels 64->1024, size 32x32->4x4
+                    final_chan//2**max(3-n,0), order='iooo', pool=2*(n+1<nblocks)) for n in range(nblocks)],
             defReLU(),
             nn.AvgPool2d(final_size), Lambda(lambda a: final_size**2*a), # channels 1024, size 4x4->1x1
             nn.Flatten(),
